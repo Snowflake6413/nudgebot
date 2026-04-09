@@ -126,33 +126,48 @@ def joining_guardian(ack, respond, say, command, client):
 def update_home_tab(client, event):
     user_id = event["user"]
 
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "plain_text",
-                "text": f"it seems like you haven't joined <#{PERSONAL_CHANNEL_ID}>, you want to join that channel? :neocat_wink_blep:",
-                "emoji": True,
+    members_response = client.conversations_members(channel=PERSONAL_CHANNEL_ID)
+    members = members_response["members"]
+
+    is_member = user_id in members
+
+    if is_member:
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"you are already in <#{PERSONAL_CHANNEL_ID}>, you goober! :neocat_happy:",
+                },
             },
-        },
-        {"type": "divider"},
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "join channel",
-                        "emoji": True,
-                    },
-                    "style": "primary",
-                    "value": "coolbutton",
-                    "action_id": "join_pc_button_home",
-                }
-            ],
-        },
-    ]
+        ]
+    else:
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"it seems like you haven't joined <#{PERSONAL_CHANNEL_ID}>, you want to join that channel? :neocat_wink_blep:",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "join channel",
+                            "emoji": True,
+                        },
+                        "style": "primary",
+                        "value": "coolbutton",
+                        "action_id": "join_pc_button_home",
+                    }
+                ],
+            },
+        ]
 
     client.views_publish(
         user_id=user_id,
