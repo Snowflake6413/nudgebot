@@ -1,4 +1,5 @@
 import os
+import re
 
 import requests
 import sentry_sdk
@@ -25,6 +26,24 @@ sentry_sdk.init(
     dsn=SENTRY_DSN,
     enable_logs=True,
 )
+
+
+# Auto-Thread feature
+@app.message()
+def check_for_ping_msgs(message, client, logger):
+
+    text = message.get("text", "")
+
+    has_here = "<!here>" in text or "@here" in text
+    has_channel = "<!channel>" in text or "@channel" in text
+    has_usergroup = f"<!subteam^{PERSONAL_USERGROUP_ID}" in text
+
+    if has_here or has_channel or has_usergroup:
+        logger.info(f"Mention detected OwO {text}")
+        try:
+            client.chat_postMessage(channel=message.get("channel"), text=":thread:")
+        except Exception as e:
+            sentry_sdk.capture_exception(e)
 
 
 @app.command("/join-the-padded-room")
