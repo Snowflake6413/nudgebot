@@ -46,6 +46,39 @@ def check_for_ping_msgs(message, client, logger):
             sentry_sdk.capture_exception(e)
 
 
+@app.event("member_joined_channel")
+def handle_member_invited_channel(body, client):
+    channel = body["event"]["channel"]
+    user = body["event"]["user"]
+
+    if channel == PERSONAL_CHANNEL_ID:
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"hiya, {user}! :oi: welcome to {PERSONAL_CHANNEL_ID}! we hope you have a nice time chatting in this channel! :neocat_happy:",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "plain_text",
+                        "text": ":wave1parrot::wave2parrot::wave3parrot::wave4parrot::wave5parrot::wave6parrot:",
+                        "emoji": True,
+                    }
+                ],
+            },
+        ]
+        client.chat_postMessage(
+            channel=channel,
+            blocks=blocks,
+        )
+
+
+# Join via Slash command
 @app.command("/join-the-padded-room")
 def joining_guardian(ack, respond, say, command, client):
     ack()
@@ -80,19 +113,23 @@ def joining_guardian(ack, respond, say, command, client):
             "type": "section",
             "text": {
                 "type": "plain_text",
-                "text": f"🐱 User: {user_id}",
+                "text": f":neocat: User: {user_id}",
                 "emoji": True,
             },
         },
         {
             "type": "section",
-            "text": {"type": "plain_text", "text": "📅 Date Joined:", "emoji": True},
+            "text": {
+                "type": "plain_text",
+                "text": ":tw_calendar: Date Joined:",
+                "emoji": True,
+            },
         },
         {
             "type": "section",
             "text": {
                 "type": "plain_text",
-                "text": f"🛂 IDV Status: {idv_result}",
+                "text": f":identity-vault-transparent: IDV Status: {idv_result}",
                 "emoji": True,
             },
         },
