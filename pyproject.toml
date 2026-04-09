@@ -1,5 +1,5 @@
-Y[project]
-name = "hellohome"
+[project]
+name = "nudgebot"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
