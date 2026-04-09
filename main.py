@@ -1,5 +1,4 @@
 import os
-from calendar import TextCalendar
 
 import requests
 import sentry_sdk
