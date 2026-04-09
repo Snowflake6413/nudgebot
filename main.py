@@ -1,11 +1,18 @@
 import os
 import re
+from sched import scheduler
+import threading
+import time
+import zoneinfo
+
+from datetime import datetime
 
 import requests
 import sentry_sdk
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+
 
 load_dotenv()
 
@@ -27,6 +34,142 @@ sentry_sdk.init(
     enable_logs=True,
 )
 
+
+# RECAP.
+@app.action("open_recap_modal")
+def handle_recap_button(ack, body, client, logger):
+    ack()
+
+    user_id = body["user"]["id"]
+
+    if user_id != CMAN_USER_ID:
+        client.chat_postEphemeral(
+            channel=body["channel"]["id"],
+            user=user_id,
+            text=f"Only {CMAN_USER_ID} can only answer the recap prompt, ya goober! :neocat_knifes:",
+        )
+        return
+
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "callback_id": "recap_view"
+            "title": {"type": "plain_text", "text": "Recap Form", "emoji": True},
+            "submit": {"type": "plain_text", "text": "submit recap!", "emoji": True},
+            "close": {"type": "plain_text", "text": "cancel", "emoji": True},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"heya, <@{user_id}>! hope you are having a nice day! mind filling this out? :neocat_aww:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "how are you feeling today?"},
+                    "accessory": {
+                        "type": "static_select",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select an item",
+                            "emoji": True,
+                        },
+                        "options": [
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":neocat_happy: excited!",
+                                    "emoji": True,
+                                },
+                                "value": "value-0",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":neocat: happy!",
+                                    "emoji": True,
+                                },
+                                "value": "value-1",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":neocat_blank: meh/neutral",
+                                    "emoji": True,
+                                },
+                                "value": "value-2",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":neocat_sad: sad",
+                                    "emoji": True,
+                                },
+                                "value": "value-3",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":neocat_up_sleep: tired",
+                                    "emoji": True,
+                                },
+                                "value": "value-4",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":neocat_x_x: stressed",
+                                    "emoji": True,
+                                },
+                                "value": "value-5",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":neocat_angry: angry",
+                                    "emoji": True,
+                                },
+                                "value": "value-6",
+                            },
+                        ],
+                        "action_id": "static_select-action",
+                    },
+                },
+                {
+                    "type": "input",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "plain_text_input-action",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "what did you do today?",
+                        "emoji": True,
+                    },
+                    "optional": False,
+                },
+            ],
+        },
+    )
+
+
+@app.view("recap_view")
+def handle_recap_submission(ack, body, client, view):
+    ack()
+
+    user_id = body["user"]["id"]
+
+    state_values = view["state"]["values"]
+    feeling = state_values["feeling_block"]["feeling_select"]["selected_option"]["text"]["text"]
+    fortoday = state_values["fortoday_block"]["fortoday_input"]["value"]
+
+    client.chat_postMessage(
+        channel=PERSONAL_CHANNEL_ID,
+        text=f"recap for today from <@{user_id}>!\n*<@{user_id}> is feeling {feeling}\n*what did <@{user_id}> do today!\n{fortoday}"
+    )
 
 # Auto-Thread feature
 @app.message()
@@ -378,6 +521,59 @@ def handle_deny_button(ack, body, client, logger):
         text="hi <@user_id>. your request to the padded room has been denied. if you think this is a mistake, please resend your request! :(",
     )
 
+def schedule_recap_msg(client):
+    MSG_HR = 21
+    MSG_MIN = 0
+
+    while True:
+        try:
+            tz = zoneinfo.ZoneInfo("America/New_York")
+            now = datetime.now(tz)
+
+            if now.hour == MSG_HR and now.minute == MSG_MIN:
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"<@{CMAN_USER_ID}>, it's 9 PM so it's time for your daily recap! :neocat_3c:",
+                            "emoji": True
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "open form!",
+                                    "emoji": True
+                                },
+                                "value": "answer_recap",
+                                "action_id": "open_recap_modal"
+                            }
+                        ]
+                    }
+                ]
+                client.chat_postMessage(
+                    channel=PERSONAL_CHANNEL_ID,
+                    text="recap time!",
+                    blocks=blocks
+                )
+
+                time.sleep(61)
+            else:
+                time.sleep(30)
+        except Exception as e:
+            sentry_sdk.capture_exception(e)
+            time.sleep(60)
+
+
+
 
 if __name__ == "__main__":
+    scheduler_thread = threading.Thread(target=schedule_recap_msg, args=(app.client,), daemon=True)
+    scheduler_thread.start()
+
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
