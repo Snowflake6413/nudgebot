@@ -1,11 +1,9 @@
 import os
-import re
 import sqlite3
 import threading
 import time
 import zoneinfo
 from datetime import datetime
-from sched import scheduler
 
 import requests
 import sentry_sdk
@@ -286,7 +284,7 @@ def joining_guardian(ack, respond, say, command, client):
         text=f":mhm:, <@{user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
     )
 
-    response = requests.get(HCA_API_URL, params={"slack_id": user_id})
+    response = requests.get(str(HCA_API_URL), params={"slack_id": user_id})
     idv_data = response.json()
     idv_result = idv_data.get("result")
     blocks = [
@@ -303,14 +301,6 @@ def joining_guardian(ack, respond, say, command, client):
             "text": {
                 "type": "plain_text",
                 "text": f":neocat: User: {user_id}",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "plain_text",
-                "text": ":tw_calendar: Date Joined:",
                 "emoji": True,
             },
         },
@@ -478,19 +468,15 @@ def handle_join_button_app_home(ack, respond, say, command, client):
             "type": "section",
             "text": {
                 "type": "plain_text",
-                "text": f"🐱 User: {user_id}",
+                "text": f":neocat: User: {user_id}",
                 "emoji": True,
             },
         },
         {
             "type": "section",
-            "text": {"type": "plain_text", "text": "📅 Date Joined:", "emoji": True},
-        },
-        {
-            "type": "section",
             "text": {
                 "type": "plain_text",
-                "text": f"🛂 IDV Status: {idv_result}",
+                "text": f":identity-vault-transparent: IDV Status: {idv_result}",
                 "emoji": True,
             },
         },
