@@ -41,7 +41,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS restrictlist (
         user_id TEXT PRIMARY KEY
         reason TEXT
-        added_at TIMESTAMP DEFAUSLT CURRENT_TIMESTAMP
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -646,8 +646,8 @@ def handle_deny_button(ack, body, client, logger):
 
 
 def schedule_recap_msg(client):
-    MSG_HR = 21
-    MSG_MIN = 0
+    MSG_HR = 7
+    MSG_MIN = 55
 
     while True:
         try:
