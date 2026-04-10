@@ -646,8 +646,8 @@ def handle_deny_button(ack, body, client, logger):
 
 
 def schedule_recap_msg(client):
-    MSG_HR = 21
-    MSG_MIN = 0
+    MSG_HR = 7
+    MSG_MIN = 55
 
     while True:
         try:
