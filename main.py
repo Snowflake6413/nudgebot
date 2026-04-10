@@ -328,12 +328,25 @@ def handle_member_invited_channel(body, client):
         )
 
 
+# anti spam function >:(
+welcomed_users = {}
+
+
+# welcome button logic!
 @app.action("sayhello")
 def greet_new_user(ack, say, body):
     ack()
 
     user_id = body["user"]["id"]
     thread_ts = body["message"]["ts"]
+
+    if thread_ts not in welcomed_users:
+        welcomed_users[thread_ts] = set()
+
+    if user_id in welcomed_users[thread_ts]:
+        return
+
+    welcomed_users[thread_ts].add(user_id)
 
     say(text=f"<@{user_id}> says hello :drgn_wave:", thread_ts=thread_ts)
 
@@ -377,7 +390,7 @@ def bot_health_check(ack, respond, command):
 
 # Join via Slash command
 @app.command("/join-the-padded-room")
-def joining_guardian(ack, respond, say, command, client):
+def joining_guardian(ack, respond, say, command, client, body):
     ack()
 
     user_id = command["user_id"]
@@ -550,10 +563,10 @@ def update_home_tab(client, event):
 # App Home Logic! Part 2!
 @app.action("join_pc_button_home")
 # This is the same logic for joining_guardian :3
-def handle_join_button_app_home(ack, respond, say, command, client):
+def handle_join_button_app_home(ack, respond, say, body, client):
     ack()
 
-    user_id = command["user_id"]
+    user_id = body["user"]["id"]
 
     members_response = client.conversations_members(channel=PERSONAL_CHANNEL_ID)
     members = members_response["members"]
