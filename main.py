@@ -1,18 +1,17 @@
 import os
 import re
-from sched import scheduler
+import sqlite3
 import threading
 import time
 import zoneinfo
-
 from datetime import datetime
+from sched import scheduler
 
 import requests
 import sentry_sdk
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-
 
 load_dotenv()
 
@@ -35,6 +34,45 @@ sentry_sdk.init(
 )
 
 
+# DB Stuff UwU
+def init_db():
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS restrictlist (
+        user_id TEXT PRIMARY KEY
+        reason TEXT
+        added_at TIMESTAMP DEFAUSLT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+def is_user_restricted(user_id: str) -> bool:
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM denylist WHERE user_id =?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+
+def add_user_to_restrictlist(user_id: str, reason: str = ""):
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR IGNORE INTO denylist (user_id, reason) VALUES (?, ?)",
+        (user_id, reason),
+    )
+    conn.commit()
+    conn.close()
+
+
 # RECAP.
 @app.action("open_recap_modal")
 def handle_recap_button(ack, body, client, logger):
@@ -54,7 +92,7 @@ def handle_recap_button(ack, body, client, logger):
         trigger_id=body["trigger_id"],
         view={
             "type": "modal",
-            "callback_id": "recap_view"
+            "callback_id": "recap_view",
             "title": {"type": "plain_text", "text": "Recap Form", "emoji": True},
             "submit": {"type": "plain_text", "text": "submit recap!", "emoji": True},
             "close": {"type": "plain_text", "text": "cancel", "emoji": True},
@@ -163,13 +201,16 @@ def handle_recap_submission(ack, body, client, view):
     user_id = body["user"]["id"]
 
     state_values = view["state"]["values"]
-    feeling = state_values["feeling_block"]["feeling_select"]["selected_option"]["text"]["text"]
+    feeling = state_values["feeling_block"]["feeling_select"]["selected_option"][
+        "text"
+    ]["text"]
     fortoday = state_values["fortoday_block"]["fortoday_input"]["value"]
 
     client.chat_postMessage(
         channel=PERSONAL_CHANNEL_ID,
-        text=f"recap for today from <@{user_id}>!\n*<@{user_id}> is feeling {feeling}\n*what did <@{user_id}> do today!\n{fortoday}"
+        text=f"recap for today from <@{user_id}>!\n*<@{user_id}> is feeling {feeling}\n*what did <@{user_id}> do today!\n{fortoday}",
     )
+
 
 # Auto-Thread feature
 @app.message()
@@ -230,6 +271,11 @@ def joining_guardian(ack, respond, say, command, client):
 
     members_response = client.conversations_members(channel=PERSONAL_CHANNEL_ID)
     members = members_response["members"]
+
+    if is_user_restricted(user_id):
+        respond(
+            f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>."
+        )
 
     if user_id in members:
         respond(f"you are already in {PERSONAL_CHANNEL_ID}, you goober :neocat_blank:")
@@ -295,7 +341,7 @@ def joining_guardian(ack, respond, say, command, client):
                     "text": {"type": "plain_text", "text": "Accept", "emoji": True},
                     "style": "primary",
                     "value": user_id,
-                    "action_id": "actionId-0",
+                    "action_id": "accept_pc_action",
                 }
             ],
         },
@@ -307,8 +353,15 @@ def joining_guardian(ack, respond, say, command, client):
                     "text": {"type": "plain_text", "text": "Deny", "emoji": True},
                     "style": "danger",
                     "value": user_id,
-                    "action_id": "actionId-1",
-                }
+                    "action_id": "deny_pc_action",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Restrict", "emoji": True},
+                    "style": "danger",
+                    "value": user_id,
+                    "action_id": "restrict_user_action",
+                },
             ],
         },
     ]
@@ -330,6 +383,8 @@ def update_home_tab(client, event):
 
     is_member = user_id in members
 
+    is_restricted = is_user_restricted(user_id)
+
     if is_member:
         blocks = [
             {
@@ -339,6 +394,16 @@ def update_home_tab(client, event):
                     "text": f"you are already in <#{PERSONAL_CHANNEL_ID}>, you goober! :neocat_happy:",
                 },
             },
+        ]
+    elif is_restricted:
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>.",
+                },
+            }
         ]
     else:
         blocks = [
@@ -377,6 +442,7 @@ def update_home_tab(client, event):
     )
 
 
+# App Home Logic! Part 2!
 @app.action("join_pc_button_home")
 # This is the same logic for joining_guardian :3
 def handle_join_button_app_home(ack, respond, say, command, client):
@@ -396,7 +462,7 @@ def handle_join_button_app_home(ack, respond, say, command, client):
         text=f":mhm:, <@{user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
     )
 
-    response = requests.get(HCA_API_URL, params={"slack_id": user_id})
+    response = requests.get(str(HCA_API_URL), params={"slack_id": user_id})
     idv_data = response.json()
     idv_result = idv_data.get("result")
     blocks = [
@@ -447,7 +513,7 @@ def handle_join_button_app_home(ack, respond, say, command, client):
                     "text": {"type": "plain_text", "text": "Accept", "emoji": True},
                     "style": "primary",
                     "value": user_id,
-                    "action_id": "actionId-0",
+                    "action_id": "accept_pc_action",
                 }
             ],
         },
@@ -459,8 +525,15 @@ def handle_join_button_app_home(ack, respond, say, command, client):
                     "text": {"type": "plain_text", "text": "Deny", "emoji": True},
                     "style": "danger",
                     "value": user_id,
-                    "action_id": "actionId-1",
-                }
+                    "action_id": "deny_pc_action",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Restrict", "emoji": True},
+                    "style": "danger",
+                    "value": user_id,
+                    "action_id": "restrict_user_action",
+                },
             ],
         },
     ]
@@ -510,6 +583,22 @@ def handle_accept_button(ack, body, client):
     )
 
 
+@app.action("restrict_user_action")
+def handle_restrict_user_pc(ack, body, client):
+    ack()
+
+    restricted_user_id = body["action"][0]["value"]
+
+    add_user_to_restrictlist(
+        restricted_user_id, reason="Channel Manager clicked Restrict"
+    )
+
+    client.chat_postMessage(
+        channel=CMAN_USER_ID,
+        text=f"Restricted <@{restricted_user_id}> sucessfully. They are not allowed to request to join <#{PERSONAL_CHANNEL_ID}>",
+    )
+
+
 @app.action("deny_pc_action")
 def handle_deny_button(ack, body, client, logger):
     ack()
@@ -520,6 +609,7 @@ def handle_deny_button(ack, body, client, logger):
         channel=user_id,
         text="hi <@user_id>. your request to the padded room has been denied. if you think this is a mistake, please resend your request! :(",
     )
+
 
 def schedule_recap_msg(client):
     MSG_HR = 21
@@ -537,8 +627,8 @@ def schedule_recap_msg(client):
                         "text": {
                             "type": "plain_text",
                             "text": f"<@{CMAN_USER_ID}>, it's 9 PM so it's time for your daily recap! :neocat_3c:",
-                            "emoji": True
-                        }
+                            "emoji": True,
+                        },
                     },
                     {
                         "type": "actions",
@@ -548,18 +638,16 @@ def schedule_recap_msg(client):
                                 "text": {
                                     "type": "plain_text",
                                     "text": "open form!",
-                                    "emoji": True
+                                    "emoji": True,
                                 },
                                 "value": "answer_recap",
-                                "action_id": "open_recap_modal"
+                                "action_id": "open_recap_modal",
                             }
-                        ]
-                    }
+                        ],
+                    },
                 ]
                 client.chat_postMessage(
-                    channel=PERSONAL_CHANNEL_ID,
-                    text="recap time!",
-                    blocks=blocks
+                    channel=PERSONAL_CHANNEL_ID, text="recap time!", blocks=blocks
                 )
 
                 time.sleep(61)
@@ -570,10 +658,10 @@ def schedule_recap_msg(client):
             time.sleep(60)
 
 
-
-
 if __name__ == "__main__":
-    scheduler_thread = threading.Thread(target=schedule_recap_msg, args=(app.client,), daemon=True)
+    scheduler_thread = threading.Thread(
+        target=schedule_recap_msg, args=(app.client,), daemon=True
+    )
     scheduler_thread.start()
 
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
