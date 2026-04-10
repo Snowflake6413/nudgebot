@@ -301,7 +301,7 @@ def handle_member_invited_channel(body, client):
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": " welcome them :drgn_wave:",
+                            "text": "welcome them :drgn_wave:",
                             "emoji": True,
                         },
                         "value": "click_me_123",
@@ -332,7 +332,7 @@ def handle_member_invited_channel(body, client):
 def greet_new_user(ack, say, body):
     ack()
 
-    user_id = body["user_id"]["id"]
+    user_id = body["user"]["id"]
     thread_ts = body["message"]["ts"]
 
     say(text=f"<@{user_id}> says hello :drgn_wave:", thread_ts=thread_ts)
