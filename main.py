@@ -93,7 +93,7 @@ def handle_recap_button(ack, body, client, logger):
         client.chat_postEphemeral(
             channel=body["channel"]["id"],
             user=user_id,
-            text=f"Only {CMAN_USER_ID} can only answer the recap prompt, ya goober! :neocat_knifes:",
+            text=f"Only <@{CMAN_USER_ID}> can only answer the recap prompt, ya goober! :neocat_knives:",
         )
         return
 
@@ -281,9 +281,39 @@ def check_for_ping_msgs(message, client, logger):
 
 
 @app.event("member_joined_channel")
-def handle_member_invited_channel(body, client):
+def handle_member_invited_channel_and_channel_join(body, client, context, say):
     channel = body["event"]["channel"]
     new_user = body["event"]["user"]
+    bot_user_id = context.get("bot_user_id")
+
+    if new_user == bot_user_id and channel != PERSONAL_CHANNEL_ID:
+        leave_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"hi! it seems like you invited me to a channel i am not supposed to be in! this bot is configure for <@{CMAN_USER_ID}>'s channel! :neocat_sad:",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "if you are looking to deploy a nudgebot for your channel, please see this <https://github.com/Snowflake6413/nudgebot|github repo!> you can deploy your nudgebot on <https://dashboard.hackclub.app|Nest> since it's free!",
+                },
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": "any issues? dm <@U09PHG7RLGG>!"}
+                ],
+            },
+        ]
+
+        say(blocks=leave_blocks)
+        client.conversations_leave(channel=channel)
+        return
 
     if channel == PERSONAL_CHANNEL_ID:
         blocks = [
@@ -351,9 +381,40 @@ def greet_new_user(ack, say, body):
     say(text=f"<@{user_id}> says hello :drgn_wave:", thread_ts=thread_ts)
 
 
+@app.command("/list-restricted-users")
+def list_restricted_users_command(ack, respond, command):
+    ack()
+
+    invoker_user_id = command["user_id"]
+    if invoker_user_id != CMAN_USER_ID:
+        respond("You are not authroized to run this command. :nuhuhvro:")
+        return
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, reason, added_at FROM restrictlist")
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        respond("No restricted users in this list.")
+        return
+    msg = "Restricted Users:\n"
+    for user_id, reason, added_at in rows:
+        msg += f"<@{user_id}> - Reason: {reason} (Added: {added_at})\n"
+
+    respond(msg)
+
+
 @app.command("/restrict-from-channel")
 def restrict_user_command(ack, respond, say, command, client):
     ack()
+
+    invoker_user_id = command["user_id"]
+
+    if invoker_user_id != CMAN_USER_ID:
+        respond("You are not authroized to run this command. :nuhuhvro:")
+        return
 
     user_id_text = command.get("text", "").strip()
     if not user_id_text:
@@ -369,6 +430,12 @@ def restrict_user_command(ack, respond, say, command, client):
 @app.command("/unrestrict-from-channel")
 def unrestrict_user_command(ack, respond, say, command, client):
     ack()
+
+    invoker_user_id = command["user_id"]
+
+    if invoker_user_id != CMAN_USER_ID:
+        respond("You are not authroized to run this command :nuhuhvro:")
+        return
 
     user_id_text = command.get("text", "").strip()
     if not user_id_text:
@@ -420,16 +487,15 @@ def joining_guardian(ack, respond, say, command, client, body):
             "type": "section",
             "text": {
                 "type": "plain_text",
-                "text": "New request to the padded room:tm:",
+                "text": f"New request to <@{CMAN_USER_ID}>'s personal channel :tm:",
                 "emoji": True,
             },
         },
         {
             "type": "section",
             "text": {
-                "type": "plain_text",
-                "text": f":neocat: User: {user_id}",
-                "emoji": True,
+                "type": "mrkdwn",
+                "text": f":neocat: User: <@{user_id}>",
             },
         },
         {
@@ -529,7 +595,7 @@ def update_home_tab(client, event):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"it seems like you haven't joined <#{PERSONAL_CHANNEL_ID}>, you want to join that channel? :neocat_wink_blep:",
+                    "text": f"it seems like you haven't joined <@{CMAN_USER_ID}>'s personal channel, you want to join that channel? :neocat_wink_blep:",
                 },
             },
             {"type": "divider"},
@@ -595,9 +661,8 @@ def handle_join_button_app_home(ack, respond, say, body, client):
         {
             "type": "section",
             "text": {
-                "type": "plain_text",
-                "text": f":neocat: User: {user_id}",
-                "emoji": True,
+                "type": "mrkdwn",
+                "text": f":neocat: User: <@{user_id}>",
             },
         },
         {
@@ -701,7 +766,7 @@ def handle_accept_button(ack, body, client):
 def handle_restrict_user_pc(ack, body, client):
     ack()
 
-    restricted_user_id = body["action"][0]["value"]
+    restricted_user_id = body["actions"][0]["value"]
 
     add_user_to_restrictlist(
         restricted_user_id, reason="Channel Manager clicked Restrict"
@@ -721,7 +786,7 @@ def handle_deny_button(ack, body, client, logger):
 
     client.chat_postMessage(
         channel=user_id,
-        text="hi <@user_id>. your request to the padded room has been denied. if you think this is a mistake, please resend your request! :(",
+        text=f"hi <@{user_id}>. your request to <@{CMAN_USER_ID}>'s personal channel has been denied. if you think this is a mistake, please resend your request! :(",
     )
 
 
