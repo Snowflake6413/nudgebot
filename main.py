@@ -97,11 +97,14 @@ def handle_recap_button(ack, body, client, logger):
         )
         return
 
+    message_ts = body["message"]["ts"]
+
     client.views_open(
         trigger_id=body["trigger_id"],
         view={
             "type": "modal",
             "callback_id": "recap_view",
+            "private_metadata": message_ts,
             "title": {"type": "plain_text", "text": "Recap Form", "emoji": True},
             "submit": {"type": "plain_text", "text": "submit recap!", "emoji": True},
             "close": {"type": "plain_text", "text": "cancel", "emoji": True},
@@ -109,9 +112,8 @@ def handle_recap_button(ack, body, client, logger):
                 {
                     "type": "section",
                     "text": {
-                        "type": "plain_text",
+                        "type": "mrkdwn",
                         "text": f"heya, <@{user_id}>! hope you are having a nice day! mind filling this out? :neocat_aww:",
-                        "emoji": True,
                     },
                 },
                 {
@@ -191,6 +193,7 @@ def handle_recap_button(ack, body, client, logger):
                     "block_id": "fortoday_block",
                     "element": {
                         "type": "plain_text_input",
+                        "multiline": True,
                         "action_id": "fortoday_input",
                     },
                     "label": {
@@ -211,15 +214,51 @@ def handle_recap_submission(ack, body, client, view):
 
     user_id = body["user"]["id"]
 
+    thread_ts = view.get("private_metadata")
+
     state_values = view["state"]["values"]
     feeling = state_values["feeling_block"]["feeling_select"]["selected_option"][
         "text"
     ]["text"]
     fortoday = state_values["fortoday_block"]["fortoday_input"]["value"]
 
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"<@{user_id}>'s recap for today! :yesyes:",
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": ":wave1parrot::wave2parrot::wave3parrot::wave4parrot::wave5parrot::wave6parrot:",
+            },
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"<@{user_id}> is feeling {feeling}",
+            },
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"what did <@{user_id}> do today?"},
+        },
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"{fortoday}"}},
+    ]
+
     client.chat_postMessage(
         channel=PERSONAL_CHANNEL_ID,
-        text=f"recap for today from <@{user_id}>!\n*<@{user_id}> is feeling {feeling}\n*what did <@{user_id}> do today!\n{fortoday}",
+        blocks=blocks,
+        thread_ts=thread_ts,
+        reply_broadcast=True,
+        text=f"f<@{user_id}>'s recap for today!",
     )
 
 
@@ -648,8 +687,8 @@ def handle_deny_button(ack, body, client, logger):
 
 
 def schedule_recap_msg(client):
-    MSG_HR = 7
-    MSG_MIN = 55
+    MSG_HR = 11  # TODO, replace with 9 pm
+    MSG_MIN = 33  # TODO, replace with 9 pm
 
     while True:
         try:
@@ -692,6 +731,12 @@ def schedule_recap_msg(client):
         except Exception as e:
             sentry_sdk.capture_exception(e)
             time.sleep(60)
+
+
+# Ack
+@app.action("feeling_select")
+def listen_feeling(ack):
+    ack()
 
 
 if __name__ == "__main__":
