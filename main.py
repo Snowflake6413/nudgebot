@@ -283,7 +283,7 @@ def check_for_ping_msgs(message, client, logger):
 @app.event("member_joined_channel")
 def handle_member_invited_channel(body, client):
     channel = body["event"]["channel"]
-    user = body["event"]["user"]
+    new_user = body["event"]["user"]
 
     if channel == PERSONAL_CHANNEL_ID:
         blocks = [
@@ -291,8 +291,23 @@ def handle_member_invited_channel(body, client):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"hiya, {user}! :oi: welcome to {PERSONAL_CHANNEL_ID}! we hope you have a nice time chatting in this channel! :neocat_happy:",
+                    "text": f"yo, <@{new_user}>! :oi: welcome to <@{CMAN_USER_ID}>'s channel! we hope you have fun chatting with people in this channel!",
                 },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": " welcome them :drgn_wave:",
+                            "emoji": True,
+                        },
+                        "value": "click_me_123",
+                        "action_id": "sayhello",
+                    }
+                ],
             },
             {"type": "divider"},
             {
@@ -306,10 +321,21 @@ def handle_member_invited_channel(body, client):
                 ],
             },
         ]
+
         client.chat_postMessage(
             channel=channel,
             blocks=blocks,
         )
+
+
+@app.action("sayhello")
+def greet_new_user(ack, say, body):
+    ack()
+
+    user_id = body["user_id"]["id"]
+    thread_ts = body["message"]["ts"]
+
+    say(text=f"<@{user_id}> says hello :drgn_wave:", thread_ts=thread_ts)
 
 
 @app.command("/restrict-from-channel")
