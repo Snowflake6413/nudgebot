@@ -39,9 +39,9 @@ def init_db():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS restrictlist (
-        user_id TEXT PRIMARY KEY
-        reason TEXT
-        added_at TIMESTAMP DEFAUSLT CURRENT_TIMESTAMP
+        user_id TEXT PRIMARY KEY,
+        reason TEXT,
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
