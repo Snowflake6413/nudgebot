@@ -116,6 +116,7 @@ def handle_recap_button(ack, body, client, logger):
                 },
                 {
                     "type": "section",
+                    "block_id": "feeling_block",
                     "text": {"type": "mrkdwn", "text": "how are you feeling today?"},
                     "accessory": {
                         "type": "static_select",
@@ -182,14 +183,15 @@ def handle_recap_button(ack, body, client, logger):
                                 "value": "value-6",
                             },
                         ],
-                        "action_id": "static_select-action",
+                        "action_id": "feeling_select",
                     },
                 },
                 {
                     "type": "input",
+                    "block_id": "fortoday_block",
                     "element": {
                         "type": "plain_text_input",
-                        "action_id": "plain_text_input-action",
+                        "action_id": "fortoday_input",
                     },
                     "label": {
                         "type": "plain_text",
