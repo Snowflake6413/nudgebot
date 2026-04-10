@@ -54,7 +54,7 @@ init_db()
 def is_user_restricted(user_id: str) -> bool:
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM denylist WHERE user_id =?", (user_id,))
+    cursor.execute("SELECT 1 FROM restrictlist WHERE user_id =?", (user_id,))
     result = cursor.fetchone()
     conn.close()
     return result is not None
@@ -64,8 +64,19 @@ def add_user_to_restrictlist(user_id: str, reason: str = ""):
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT OR IGNORE INTO denylist (user_id, reason) VALUES (?, ?)",
+        "INSERT OR IGNORE INTO restrictlist (user_id, reason) VALUES (?, ?)",
         (user_id, reason),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_user_from_restrictlist(user_id: str):
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM restrictlist WHERE user_id = ?",
+        (user_id,),
     )
     conn.commit()
     conn.close()
@@ -258,6 +269,36 @@ def handle_member_invited_channel(body, client):
             channel=channel,
             blocks=blocks,
         )
+
+
+@app.command("/restrict-from-channel")
+def restrict_user_command(ack, respond, say, command, client):
+    ack()
+
+    user_id_text = command.get("text", "").strip()
+    if not user_id_text:
+        respond("Please provide a user to restrict, e.g., /restrict-from-channel @user")
+        return
+
+    user_id = user_id_text.replace("<@", "").replace(">", "").split("|")[0]
+
+    add_user_to_restrictlist(user_id, reason="Restricted via slash command")
+    respond(f"Successfully restricted <@{user_id}>!")
+
+
+@app.command("/unrestrict-from-channel")
+def unrestrict_user_command(ack, respond, say, command, client):
+    ack()
+
+    user_id_text = command.get("text", "").strip()
+    if not user_id_text:
+        respond("Please provide a user to restrict, e.g., /restrict-from-channel @user")
+        return
+
+    user_id = user_id_text.replace("<@", "").replace(">", "").split("|")[0]
+
+    remove_user_from_restrictlist(user_id)
+    respond(f"Sucessfully unrestricted <@{user_id}>!")
 
 
 # Join via Slash command
