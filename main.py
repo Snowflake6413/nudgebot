@@ -301,6 +301,13 @@ def unrestrict_user_command(ack, respond, say, command, client):
     respond(f"Sucessfully unrestricted <@{user_id}>!")
 
 
+@app.command("/are-you-alive")
+def bot_health_check(ack, respond, command):
+    ack()
+
+    respond("yes i am alive thank you for asking")
+
+
 # Join via Slash command
 @app.command("/join-the-padded-room")
 def joining_guardian(ack, respond, say, command, client):
