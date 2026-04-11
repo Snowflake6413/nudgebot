@@ -566,7 +566,7 @@ def update_home_tab(client, event):
     members = members_response["members"]
 
     is_member = user_id in members
-
+    is_cm = CMAN_USER_ID
     is_restricted = is_user_restricted(user_id)
 
     if is_member:
@@ -579,6 +579,8 @@ def update_home_tab(client, event):
                 },
             },
         ]
+    elif is_cm:
+        goog
     elif is_restricted:
         blocks = [
             {
@@ -654,7 +656,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
             "type": "section",
             "text": {
                 "type": "plain_text",
-                "text": "New request to the padded room:tm:",
+                "text": f"New request to <@{CMAN_USER_ID}>'s channel :tm:",
                 "emoji": True,
             },
         },
