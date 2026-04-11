@@ -44,6 +44,12 @@ def init_db():
         added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS recap_settings (
+        user_id TEXT PRIMARY KEY,
+        recap_time TEXT DEFAULT '21:00'
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -566,10 +572,67 @@ def update_home_tab(client, event):
     members = members_response["members"]
 
     is_member = user_id in members
-    is_cm = CMAN_USER_ID
+    is_cm = user_id == CMAN_USER_ID
     is_restricted = is_user_restricted(user_id)
 
-    if is_member:
+    if is_cm:
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": "hi, <bleh>! :drgn_wave: what settings would you like to configure your nudgebot? ",
+                    "emoji": True,
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": ":incoming_envelope: Invitation Settings",
+                            "emoji": True,
+                        },
+                        "value": "click_me_123",
+                        "action_id": "actionId-0",
+                    }
+                ],
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": ":thread: Auto-Thread Settings",
+                            "emoji": True,
+                        },
+                        "value": "click_me_123",
+                        "action_id": "actionId-0",
+                    }
+                ],
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": ":clock4: Recap Settings",
+                            "emoji": True,
+                        },
+                        "value": "click_me_123",
+                        "action_id": "recap_config_action",
+                    }
+                ],
+            },
+        ]
+    elif is_member:
         blocks = [
             {
                 "type": "section",
@@ -579,8 +642,6 @@ def update_home_tab(client, event):
                 },
             },
         ]
-    elif is_cm:
-        goog
     elif is_restricted:
         blocks = [
             {
@@ -625,6 +686,94 @@ def update_home_tab(client, event):
             "type": "home",
             "blocks": blocks,
         },
+    )
+
+
+# Configuring the recap:tm:
+@app.action("recap_config_action")
+def configure_recaps(ack, body, client):
+    ack()
+
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "callback_id": "recap_config_modal",
+            "title": {
+                "type": "plain_text",
+                "text": ":clock4: Recap Settings",
+                "emoji": True,
+            },
+            "submit": {"type": "plain_text", "text": "Submit", "emoji": True},
+            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "What settings would you like to change about your recaps?",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "input",
+                    "element": {
+                        "type": "timepicker",
+                        "initial_time": "13:37",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select time",
+                            "emoji": True,
+                        },
+                        "action_id": "timepicker-action",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Time when your daily recaps should be sent:",
+                        "emoji": True,
+                    },
+                    "optional": False,
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "plain_text",
+                            "text": "By default, nudgebot sends recaps in Eastern Time (America/New_York). However, you can change this in your variables.",
+                            "emoji": True,
+                        }
+                    ],
+                },
+            ],
+        },
+    )
+
+
+# modal submission
+@app.view("recap_config_modal")
+def handle_recap_config_submission(ack, body, view, client):
+    ack()
+    user_id = body["user"]["id"]
+
+    selected_time = view["state"]["values"]["timepicker_block"]["timepicker-action"][
+        "selected_time"
+    ]
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO recap_settings (user_id, recap_time)
+        VALUES (?, ?)
+        ON CONFLICT(user_id DO UPDATE SET recap_time=excluded.recap_time
+        """,
+        (user_id, selected_time),
+    )
+    conn.commit()
+    conn.close()
+
+    client.chat_postMessage(
+        channel=user_id, text=f"Sucessfully changed the recap time to {selected_time}."
     )
 
 
@@ -793,21 +942,30 @@ def handle_deny_button(ack, body, client, logger):
 
 
 def schedule_recap_msg(client):
-    MSG_HR = 11  # TODO, replace with 9 pm
-    MSG_MIN = 33  # TODO, replace with 9 pm
 
     while True:
         try:
             tz = zoneinfo.ZoneInfo("America/New_York")
             now = datetime.now(tz)
 
-            if now.hour == MSG_HR and now.minute == MSG_MIN:
+            current_time_str = now.strftime("%H:%M")
+
+            conn = sqlite3.connect("nudgebot.db")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT user_id FROM recap_settings WHERE recap_time = ?",
+                (current_time_str,),
+            )
+            rows = cursor.fetchall()
+            conn.close()
+
+            if rows:
                 blocks = [
                     {
                         "type": "section",
                         "text": {
                             "type": "plain_text",
-                            "text": f"<@{CMAN_USER_ID}>, it's 9 PM so it's time for your daily recap! :neocat_3c:",
+                            "text": f"<@{CMAN_USER_ID}>, it's {current_time_str} so it's time for your daily recap! :neocat_3c:",
                             "emoji": True,
                         },
                     },
