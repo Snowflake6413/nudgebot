@@ -286,11 +286,16 @@ def check_for_ping_msgs(message, client, logger):
             sentry_sdk.capture_exception(e)
 
 
+# when a member joins a channel
 @app.event("member_joined_channel")
 def handle_member_invited_channel_and_channel_join(body, client, context, say):
     channel = body["event"]["channel"]
     new_user = body["event"]["user"]
     bot_user_id = context.get("bot_user_id")
+
+    if is_user_restricted(new_user):
+        client.conversations_kick(channel=channel, user=new_user)
+        return
 
     if new_user == bot_user_id and channel != PERSONAL_CHANNEL_ID:
         leave_blocks = [
