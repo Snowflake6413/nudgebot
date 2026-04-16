@@ -467,30 +467,32 @@ def bot_health_check(ack, respond, command):
 
 
 # Join via Slash command
-@app.command("/join-the-padded-room")
+# free feel to change this command to anything!
+@app.command("/join-a-nice-channel")
 def joining_guardian(ack, respond, say, command, client, body):
     ack()
 
-    user_id = command["user_id"]
+    invoker_user_id = command["user_id"]
 
     members_response = client.conversations_members(channel=PERSONAL_CHANNEL_ID)
     members = members_response["members"]
 
-    if is_user_restricted(user_id):
+    if is_user_restricted(invoker_user_id):
         respond(
             f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>."
         )
+        return
 
-    if user_id in members:
+    if invoker_user_id in members:
         respond(f"you are already in {PERSONAL_CHANNEL_ID}, you goober :neocat_blank:")
         return
 
     client.chat_postMessage(
-        channel=user_id,
-        text=f":mhm:, <@{user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
+        channel=invoker_user_id,
+        text=f":mhm:, <@{invoker_user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
     )
 
-    response = requests.get(str(HCA_API_URL), params={"slack_id": user_id})
+    response = requests.get(str(HCA_API_URL), params={"slack_id": invoker_user_id})
     idv_data = response.json()
     idv_result = idv_data.get("result")
     blocks = [
@@ -506,7 +508,7 @@ def joining_guardian(ack, respond, say, command, client, body):
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f":neocat: User: <@{user_id}>",
+                "text": f":neocat: User: <@{invoker_user_id}>",
             },
         },
         {
@@ -535,7 +537,7 @@ def joining_guardian(ack, respond, say, command, client, body):
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Accept", "emoji": True},
                     "style": "primary",
-                    "value": user_id,
+                    "value": invoker_user_id,
                     "action_id": "accept_pc_action",
                 }
             ],
@@ -547,14 +549,14 @@ def joining_guardian(ack, respond, say, command, client, body):
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Deny", "emoji": True},
                     "style": "danger",
-                    "value": user_id,
+                    "value": invoker_user_id,
                     "action_id": "deny_pc_action",
                 },
                 {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Restrict", "emoji": True},
                     "style": "danger",
-                    "value": user_id,
+                    "value": invoker_user_id,
                     "action_id": "restrict_user_action",
                 },
             ],
