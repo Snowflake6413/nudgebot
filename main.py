@@ -26,10 +26,11 @@ PERSONAL_USERGROUP_ID = os.getenv("PERSONAL_USERGROUP_ID")
 app = App(token=SLACK_BOT_TOKEN)
 
 # Sentry so good bruh
-sentry_sdk.init(
-    dsn=SENTRY_DSN,
-    enable_logs=True,
-)
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        enable_logs=True,
+    )
 
 
 # DB Stuff UwU
