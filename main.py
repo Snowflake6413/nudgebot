@@ -18,7 +18,6 @@ load_dotenv()
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
 SENTRY_DSN = os.getenv("SENTRY_DSN")
-HCA_API_URL = os.getenv("HCA_API_URL")
 CMAN_USER_ID = os.getenv("CMAN_USER_ID")
 PERSONAL_CHANNEL_ID = os.getenv("PERSONAL_CHANNEL_ID")
 PERSONAL_USERGROUP_ID = os.getenv("PERSONAL_USERGROUP_ID")
@@ -493,7 +492,10 @@ def joining_guardian(ack, respond, say, command, client, body):
         text=f":mhm:, <@{invoker_user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
     )
 
-    response = requests.get(str(HCA_API_URL), params={"slack_id": invoker_user_id})
+    response = requests.get(
+        "https://auth.hackclub.com/api/external/check",
+        params={"slack_id": invoker_user_id},
+    )
     idv_data = response.json()
     idv_result = idv_data.get("result")
     blocks = [
@@ -805,7 +807,9 @@ def handle_join_button_app_home(ack, respond, say, body, client):
         text=f":mhm:, <@{user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
     )
 
-    response = requests.get(str(HCA_API_URL), params={"slack_id": user_id})
+    response = requests.get(
+        "https://auth.hackclub.com/api/external/check", params={"slack_id": user_id}
+    )
     idv_data = response.json()
     idv_result = idv_data.get("result")
     blocks = [
