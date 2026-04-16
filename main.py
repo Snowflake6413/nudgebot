@@ -664,39 +664,38 @@ def update_home_tab(client, event):
         ]
     else:
         blocks = [
-		{
-			"type": "section",
-			"text": {
-				"type": "mrkdwn",
-				"text": f"hey, it looks like you haven't joined <#{PERSONAL_CHANNEL_ID}>, you wanna join that channel? :neocat_wink_blep:"
-			}
-		},
-		{
-			"type": "context",
-			"elements": [
-				{
-					"type": "mrkdwn",
-					"text": f"this nudgebot and the personal channel (<#{PERSONAL_CHANNEL_ID}>) above is owned by <@{CMAN_USER_ID}>!"
-				}
-			]
-		},
-		{
-			"type": "actions",
-			"elements": [
-				{
-					"type": "button",
-					"text": {
-						"type": "plain_text",
-						"text": "Join Channel",
-						"emoji": True
-					},
-					"value": "click_me_123",
-					"action_id": "join_pc_button_home"
-				}
-			]
-		}
-	]
-        }
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"hey, it looks like you haven't joined <#{PERSONAL_CHANNEL_ID}>, you wanna join that channel? :neocat_wink_blep:",
+                },
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"this nudgebot and the personal channel (<#{PERSONAL_CHANNEL_ID}>) above is owned by <@{CMAN_USER_ID}>!",
+                    }
+                ],
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Join Channel",
+                            "emoji": True,
+                        },
+                        "value": "click_me_123",
+                        "action_id": "join_pc_button_home",
+                    }
+                ],
+            },
+        ]
 
     client.views_publish(
         user_id=user_id,
