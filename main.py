@@ -664,31 +664,39 @@ def update_home_tab(client, event):
         ]
     else:
         blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"it seems like you haven't joined <@{CMAN_USER_ID}>'s personal channel, you want to join that channel? :neocat_wink_blep:",
-                },
-            },
-            {"type": "divider"},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "join channel",
-                            "emoji": True,
-                        },
-                        "style": "primary",
-                        "value": "coolbutton",
-                        "action_id": "join_pc_button_home",
-                    }
-                ],
-            },
-        ]
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": f"hey, it looks like you haven't joined <#{PERSONAL_CHANNEL_ID}>, you wanna join that channel? :neocat_wink_blep:"
+			}
+		},
+		{
+			"type": "context",
+			"elements": [
+				{
+					"type": "mrkdwn",
+					"text": f"this nudgebot and the personal channel (<#{PERSONAL_CHANNEL_ID}>) above is owned by <@{CMAN_USER_ID}>!"
+				}
+			]
+		},
+		{
+			"type": "actions",
+			"elements": [
+				{
+					"type": "button",
+					"text": {
+						"type": "plain_text",
+						"text": "Join Channel",
+						"emoji": True
+					},
+					"value": "click_me_123",
+					"action_id": "join_pc_button_home"
+				}
+			]
+		}
+	]
+        }
 
     client.views_publish(
         user_id=user_id,
