@@ -50,6 +50,12 @@ def init_db():
         recap_time TEXT DEFAULT '21:00'
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS joining_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -86,6 +92,15 @@ def remove_user_from_restrictlist(user_id: str):
     )
     conn.commit()
     conn.close()
+
+
+def is_joining_paused() -> bool:
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM joining_settings WHERE key = 'is_paused'")
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None and str(result[0]) == "1"
 
 
 # RECAP.
@@ -264,7 +279,7 @@ def handle_recap_submission(ack, body, client, view):
         blocks=blocks,
         thread_ts=thread_ts,
         reply_broadcast=True,
-        text=f"f<@{user_id}>'s recap for today!",
+        text=f"<@{user_id}>'s recap for today!",
     )
 
 
@@ -284,6 +299,101 @@ def check_for_ping_msgs(message, client, logger):
             client.chat_postMessage(channel=message.get("channel"), text=":thread:")
         except Exception as e:
             sentry_sdk.capture_exception(e)
+
+
+# advertise STUFF uwu
+@app.command("/advertise-channel")
+def advertise_channel(command, client, ack, respond):
+    ack()
+
+    invoker_user_id = command["user_id"]
+    trigger_id = command["trigger_id"]
+    if invoker_user_id != CMAN_USER_ID:
+        respond("You are not authorized to run this command!")
+        return
+
+    client.views_open(
+        trigger_id=trigger_id,
+        view={
+            "type": "modal",
+            "callback_id": "advertise_channel_modal",
+            "title": {"type": "plain_text", "text": "Advertise Channel", "emoji": True},
+            "submit": {"type": "plain_text", "text": "Advertise", "emoji": True},
+            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Enter your advertisement message! :3cnuke:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "input",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "message_input-action",
+                        "block_id": "message_input_block",
+                    },
+                    "label": {"type": "plain_text", "text": "Message", "emoji": True},
+                    "optional": False,
+                },
+            ],
+        },
+    )
+
+
+@app.view("advertise_channel_modal")
+def handle_advertise_channel_submission(ack, body, view, client):
+    ack()
+
+    user_id = body["user"]["id"]
+
+    message_text = view["state"]["values"]["message_input_block"][
+        "message_input-action"
+    ]["value"]
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": message_text}},
+        {"type": "divider"},
+        {
+            "type": "context",
+            "elements": [
+                {"type": "plain_text", "text": f"sent by: <@{user_id}> ", "emoji": True}
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "plain_text",
+                    "text": f"an ad to join <#{PERSONAL_CHANNEL_ID}> (<@{CMAN_USER_ID}>)",
+                    "emoji": True,
+                }
+            ],
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Join Channel!",
+                        "emoji": True,
+                    },
+                    "value": "click_me_123",
+                    "action_id": "actionId-0",
+                }
+            ],
+        },
+    ]
+
+    client.chat_postMessage(
+        channel=PERSONAL_CHANNEL_ID,  # Soon.
+        blocks=blocks,
+    )
 
 
 # when a member joins a channel
@@ -398,7 +508,7 @@ def list_restricted_users_command(ack, respond, command):
 
     invoker_user_id = command["user_id"]
     if invoker_user_id != CMAN_USER_ID:
-        respond("You are not authroized to run this command. :nuhuhvro:")
+        respond("You are not authorized to run this command. :nuhuhvro:")
         return
 
     conn = sqlite3.connect("nudgebot.db")
@@ -424,7 +534,7 @@ def restrict_user_command(ack, respond, say, command, client):
     invoker_user_id = command["user_id"]
 
     if invoker_user_id != CMAN_USER_ID:
-        respond("You are not authroized to run this command. :nuhuhvro:")
+        respond("You are not authorized to run this command. :nuhuhvro:")
         return
 
     user_id_text = command.get("text", "").strip()
@@ -445,7 +555,7 @@ def unrestrict_user_command(ack, respond, say, command, client):
     invoker_user_id = command["user_id"]
 
     if invoker_user_id != CMAN_USER_ID:
-        respond("You are not authroized to run this command :nuhuhvro:")
+        respond("You are not authorized to run this command :nuhuhvro:")
         return
 
     user_id_text = command.get("text", "").strip()
@@ -607,7 +717,7 @@ def update_home_tab(client, event):
                             "emoji": True,
                         },
                         "value": "click_me_123",
-                        "action_id": "actionId-0",
+                        "action_id": "invitation_settings_action",
                     }
                 ],
             },
@@ -706,6 +816,56 @@ def update_home_tab(client, event):
     )
 
 
+@app.action("invitation_settings_action")
+def configure_invitations(ack, client, body):
+    ack()
+
+    client.view_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Join Settings", "emoji": True},
+            "submit": {"type": "plain_text", "text": "Submit", "emoji": True},
+            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "what would you like to configure for your invitation settings? :rac_woah:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": ":stop: Pause Joining",
+                                "emoji": True,
+                            },
+                            "value": "click_me_123",
+                            "action_id": "pause_joining_action",
+                        }
+                    ],
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "plain_text",
+                            "text": "this will stop people from trying to join your channel. regardless if they are restricted.",
+                            "emoji": True,
+                        }
+                    ],
+                },
+            ],
+        },
+    )
+
+
 # Configuring the recap:tm:
 @app.action("recap_config_action")
 def configure_recaps(ack, body, client):
@@ -734,6 +894,7 @@ def configure_recaps(ack, body, client):
                 },
                 {
                     "type": "input",
+                    "block_id": "timepicker_block",
                     "element": {
                         "type": "timepicker",
                         "initial_time": "13:37",
@@ -782,7 +943,7 @@ def handle_recap_config_submission(ack, body, view, client):
         """
         INSERT INTO recap_settings (user_id, recap_time)
         VALUES (?, ?)
-        ON CONFLICT(user_id DO UPDATE SET recap_time=excluded.recap_time
+        ON CONFLICT(user_id) DO UPDATE SET recap_time=excluded.recap_time
         """,
         (user_id, selected_time),
     )
@@ -983,7 +1144,7 @@ def schedule_recap_msg(client):
                     {
                         "type": "section",
                         "text": {
-                            "type": "plain_text",
+                            "type": "mrkdwn",
                             "text": f"<@{CMAN_USER_ID}>, it's {current_time_str} so it's time for your daily recap! :neocat_3c:",
                             "emoji": True,
                         },
