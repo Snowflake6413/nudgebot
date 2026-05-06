@@ -32,6 +32,14 @@ if SENTRY_DSN:
     )
 
 
+@app.error
+def global_error_handler(error, body, logger):
+    logger.exception(f"Unhandled error: {error}")
+    logger.info(f"Request body: {body}")
+    if SENTRY_DSN:
+        sentry_sdk.capture_exception(error)
+
+
 # DB Stuff UwU
 def init_db():
     conn = sqlite3.connect("nudgebot.db")
@@ -303,7 +311,7 @@ def check_for_ping_msgs(message, client, logger):
 
 # advertise STUFF uwu
 @app.command("/advertise-channel")
-def advertise_channel(command, client, ack, respond):
+def advertise_channel(command, client, ack, respond, logger):
     ack()
 
     invoker_user_id = command["user_id"]
@@ -312,36 +320,48 @@ def advertise_channel(command, client, ack, respond):
         respond("You are not authorized to run this command!")
         return
 
-    client.views_open(
-        trigger_id=trigger_id,
-        view={
-            "type": "modal",
-            "callback_id": "advertise_channel_modal",
-            "title": {"type": "plain_text", "text": "Advertise Channel", "emoji": True},
-            "submit": {"type": "plain_text", "text": "Advertise", "emoji": True},
-            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Enter your advertisement message! :3cnuke:",
-                        "emoji": True,
-                    },
+    try:
+        client.views_open(
+            trigger_id=trigger_id,
+            view={
+                "type": "modal",
+                "callback_id": "advertise_channel_modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "Advertise Channel",
+                    "emoji": True,
                 },
-                {
-                    "type": "input",
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "message_input-action",
+                "submit": {"type": "plain_text", "text": "Advertise", "emoji": True},
+                "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Enter your advertisement message! :3cnuke:",
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "input",
                         "block_id": "message_input_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "message_input-action",
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": "Message",
+                            "emoji": True,
+                        },
+                        "optional": False,
                     },
-                    "label": {"type": "plain_text", "text": "Message", "emoji": True},
-                    "optional": False,
-                },
-            ],
-        },
-    )
+                ],
+            },
+        )
+    except Exception as e:
+        logger.exception(f"Error opening advertise-channel modal: {e}")
+        respond("Something went wrong opening the modal. Please try again!")
 
 
 @app.view("advertise_channel_modal")
