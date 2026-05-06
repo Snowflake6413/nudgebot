@@ -379,17 +379,14 @@ def handle_advertise_channel_submission(ack, body, view, client):
         {"type": "divider"},
         {
             "type": "context",
-            "elements": [
-                {"type": "plain_text", "text": f"sent by: <@{user_id}> ", "emoji": True}
-            ],
+            "elements": [{"type": "mrkdwn", "text": f"sent by: <@{user_id}> "}],
         },
         {
             "type": "context",
             "elements": [
                 {
-                    "type": "plain_text",
+                    "type": "mrkdwn",
                     "text": f"an ad to join <#{PERSONAL_CHANNEL_ID}> (<@{CMAN_USER_ID}>)",
-                    "emoji": True,
                 }
             ],
         },
@@ -403,8 +400,8 @@ def handle_advertise_channel_submission(ack, body, view, client):
                         "text": "Join Channel!",
                         "emoji": True,
                     },
-                    "value": "click_me_123",
-                    "action_id": "actionId-0",
+                    "value": "join_from_ad",
+                    "action_id": "join_pc_button_home",
                 }
             ],
         },
@@ -592,7 +589,6 @@ def unrestrict_user_command(ack, respond, say, command, client):
 @app.command("/are-you-alive")
 def bot_health_check(ack, respond, command):
     ack()
-
     respond("yes i am alive thank you for asking")
 
 
