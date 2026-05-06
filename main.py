@@ -983,7 +983,10 @@ def handle_join_button_app_home(ack, respond, say, body, client):
     members = members_response["members"]
 
     if user_id in members:
-        respond(f"you are already in {PERSONAL_CHANNEL_ID}, you goober :neocat_blank:")
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"you are already in <#{PERSONAL_CHANNEL_ID}>, you goober :neocat_blank:",
+        )
         return
 
     client.chat_postMessage(
