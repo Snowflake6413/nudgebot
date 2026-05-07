@@ -1196,6 +1196,25 @@ def schedule_recap_msg(client):
             time.sleep(60)
 
 
+# "Watching" feature
+@app.event("subteam_updated")
+def handle_usergroup_watch(event, client):
+    if event.get("subteam_id") != PERSONAL_USERGROUP_ID:
+        return
+
+    for user_id in event.get("added_users", []):
+        client.chat_postMessage(
+            channel=CMAN_USER_ID,
+            text=f"<@{user_id}> just joined the usergroup! (alexanders-kittens) :yay-67:",
+        )
+
+    for user_id in event.get("removed_users", []):
+        client.chat_postMessage(
+            channel=CMAN_USER_ID,
+            text=f"<@{user_id}> just left the usergroup! (alexanders-kittens) :saga:",
+        )
+
+
 # Ack
 @app.action("feeling_select")
 def listen_feeling(ack):
