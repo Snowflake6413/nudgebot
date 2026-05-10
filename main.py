@@ -456,7 +456,7 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
     if channel == PERSONAL_CHANNEL_ID:
         client.chat_postMessage(
             channel=CMAN_USER_ID,
-            text=f"<@{CMAN_USER_ID}> joined your channel! :yay-67:",
+            text=f"<@{new_user}> joined your channel! :yay-67:",
         )
         blocks = [
             {
@@ -1233,11 +1233,6 @@ def handle_usergroup_watch(event, client):
             channel=CMAN_USER_ID,
             text=f"<@{user_id}> just left the usergroup! (alexanders-kittens) :saga:",
         )
-
-
-@app.event("subteam_updated")
-def handle_subteam_updated_events(body, logger):
-    print("subteam_updated triggered:", body)
 
 
 # Ack
