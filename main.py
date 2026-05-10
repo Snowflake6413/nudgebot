@@ -386,7 +386,7 @@ def handle_advertise_channel_submission(ack, body, view, client):
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"an ad to join <#{PERSONAL_CHANNEL_ID}> (<@{CMAN_USER_ID}>)",
+                    "text": f"an ad to join <#{PERSONAL_CHANNEL_ID}> (owned by: <@{CMAN_USER_ID}>)",
                 }
             ],
         },
@@ -454,6 +454,10 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
         return
 
     if channel == PERSONAL_CHANNEL_ID:
+        client.chat_postMessage(
+            channel=CMAN_USER_ID,
+            text=f"<@{CMAN_USER_ID}> joined your channel! :yay-67:",
+        )
         blocks = [
             {
                 "type": "section",
@@ -494,6 +498,21 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
             channel=channel,
             blocks=blocks,
         )
+
+
+@app.event("member_left_channel")
+def handle_member_left_channel(body, client):
+    channel = body["event"]["channel"]
+    left_user = body["event"]["user"]
+
+    try:
+        if channel == PERSONAL_CHANNEL_ID:
+            client.chat_postMessage(
+                channel=CMAN_USER_ID,
+                text=f"<@{left_user}> left your channel.. :yay-sob:",
+            )
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
 
 
 # anti spam function >:(
@@ -1197,8 +1216,9 @@ def schedule_recap_msg(client):
 
 
 # "Watching" feature
-@app.event("subteam_updated")
+@app.event("subteam_members_changed")
 def handle_usergroup_watch(event, client):
+    print("subteam_members_changed triggered:", event)
     if event.get("subteam_id") != PERSONAL_USERGROUP_ID:
         return
 
@@ -1213,6 +1233,11 @@ def handle_usergroup_watch(event, client):
             channel=CMAN_USER_ID,
             text=f"<@{user_id}> just left the usergroup! (alexanders-kittens) :saga:",
         )
+
+
+@app.event("subteam_updated")
+def handle_subteam_updated_events(body, logger):
+    print("subteam_updated triggered:", body)
 
 
 # Ack
