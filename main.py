@@ -736,7 +736,7 @@ def update_home_tab(client, event):
                 "type": "section",
                 "text": {
                     "type": "plain_text",
-                    "text": "hi, <bleh>! :drgn_wave: what settings would you like to configure your nudgebot? ",
+                    "text": f"hi, <@{CMAN_USER_ID}>! :drgn_wave: what settings would you like to configure your nudgebot? ",
                     "emoji": True,
                 },
             },
