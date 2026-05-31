@@ -507,6 +507,21 @@ def handle_member_left_channel(body, client):
 
     try:
         if channel == PERSONAL_CHANNEL_ID:
+            group_info = client.usergroups_user_list(usergroup=PERSONAL_USERGROUP_ID)
+            current_users = group_info["users"]
+
+            if left_user in current_users:
+                current_users.remove(left_user)
+
+                client.usergroups_user_update(
+                    usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
+                )
+
+            client.chat_postMessage(
+                channel=left_user,
+                text=f"Hey! It looks like you left <#{channel}> ({channel}). Because of this, you'll be removed from the user group, thx for coming! :)",
+            )
+
             client.chat_postMessage(
                 channel=CMAN_USER_ID,
                 text=f"<@{left_user}> left your channel.. :yay-sob:",
