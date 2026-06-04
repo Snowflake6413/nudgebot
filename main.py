@@ -57,7 +57,8 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS recap_settings (
         user_id TEXT PRIMARY KEY,
-        recap_time TEXT DEFAULT '21:00'
+        recap_time TEXT DEFAULT '21:00',
+        send_hackatime_stats INTEGER DEFAULT 1
         )
     """)
     # Joining Settings
@@ -274,6 +275,18 @@ def handle_recap_submission(ack, body, client, view):
     ]["text"]
     fortoday = state_values["fortoday_block"]["fortoday_input"]["value"]
 
+    # wait let me see the db if hackatime stats are toggled
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT send_hackatime_stats FROM recap_settings WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    send_hackatime_stats = True if row is None else bool(row[0])
+
     blocks = [
         {
             "type": "section",
@@ -292,18 +305,77 @@ def handle_recap_submission(ack, body, client, view):
         {"type": "divider"},
         {
             "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"<@{user_id}> is feeling {feeling}",
-            },
+            "text": {"type": "mrkdwn", "text": f"<@{user_id}> is feeling {feeling}"},
         },
         {"type": "divider"},
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": f"what did <@{user_id}> do today?"},
         },
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"{fortoday}"}},
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": fortoday},
+        },
     ]
+    if send_hackatime_stats:
+        # hackatime things
+        now = datetime.now()
+        today = now.strftime("%Y%m%d")
+        response = requests.get(
+            f"https://hackatime.hackclub.com/api/v1/users/{CMAN_USER_ID}/stats?start_date={today}"
+        )
+        data = response.json()["data"]
+
+        total = data["human_readable_total"]
+        streak = data["streak"]
+        top_lang = data["languages"][0]
+        hackatime = (
+            f":clock4: *Total time:* {total}\n"
+            f":streak: *Streak:* {streak}\n"
+            f"*Top language:*  {top_lang['name']} ({top_lang['text']}, {top_lang['percent']}% "
+        )
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"<@{user_id}>'s recap for today! :yesyes:",
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":wave1parrot::wave2parrot::wave3parrot::wave4parrot::wave5parrot::wave6parrot:",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"<@{user_id}> is feeling {feeling}",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"what did <@{user_id}> do today?"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"{fortoday}"},
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":hackatime: <@{user_id}>'s hackatime stats for today!",
+                },
+            },
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"{hackatime}"}},
+        ]
 
     client.chat_postMessage(
         channel=PERSONAL_CHANNEL_ID,
@@ -1307,6 +1379,51 @@ def configure_recaps(ack, body, client):
                         }
                     ],
                 },
+                {
+                    "type": "input",
+                    "block_id": "hackatime_block",
+                    "element": {
+                        "type": "static_select",
+                        "action_id": "static_select-action",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select an item",
+                            "emoji": True,
+                        },
+                        "options": [
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Yes",
+                                    "emoji": True,
+                                },
+                                "value": "value-0",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "No",
+                                    "emoji": True,
+                                },
+                                "value": "value-1",
+                            },
+                        ],
+                        "initial_option": {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Yes",
+                                "emoji": True,
+                            },
+                            "value": "value-0",
+                        },
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": ":hackatime: Send Hackatime stats in your recap message?",
+                        "emoji": True,
+                    },
+                    "optional": False,
+                },
             ],
         },
     )
@@ -1321,6 +1438,11 @@ def handle_recap_config_submission(ack, body, view, client):
     selected_time = view["state"]["values"]["timepicker_block"]["timepicker-action"][
         "selected_time"
     ]
+    selected_stats = view["state"]["values"]["hackatime_block"]["static_select-action"][
+        "selected_option"
+    ]["value"]
+
+    send_hackatime_stats = 1 if selected_stats == "value-0" else 0
 
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
@@ -1328,16 +1450,16 @@ def handle_recap_config_submission(ack, body, view, client):
         """
         INSERT INTO recap_settings (user_id, recap_time)
         VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET recap_time=excluded.recap_time
-        """,
-        (user_id, selected_time),
+        ON CONFLICT(user_id) DO UPDATE SET
+                   recap_time=excluded.recap_time,
+                   send_hackatime_stats=excluded.send_hackatime_stats
+               """,
+        (user_id, selected_time, send_hackatime_stats),
     )
     conn.commit()
     conn.close()
 
-    client.chat_postMessage(
-        channel=user_id, text=f"Sucessfully changed the recap time to {selected_time}."
-    )
+    client.chat_postMessage(channel=user_id, text="Sucessfully changed settings!")
 
 
 # App Home Logic! Part 2!
@@ -1513,9 +1635,7 @@ def schedule_recap_msg(client):
 
     while True:
         try:
-            tz = zoneinfo.ZoneInfo(
-                "America/New_York"
-            )  # by default, the recap timezone is EST, you can change this!
+            tz = zoneinfo.ZoneInfo(BOT_TIMEZONE or "America/New_York")
             now = datetime.now(tz)
 
             current_time_str = now.strftime("%H:%M")
