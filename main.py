@@ -21,6 +21,7 @@ SENTRY_DSN = os.getenv("SENTRY_DSN")
 CMAN_USER_ID = os.getenv("CMAN_USER_ID")
 PERSONAL_CHANNEL_ID = os.getenv("PERSONAL_CHANNEL_ID")
 PERSONAL_USERGROUP_ID = os.getenv("PERSONAL_USERGROUP_ID")
+BOT_TIMEZONE = os.getenv("BOT_TIMEZONE")
 
 app = App(token=SLACK_BOT_TOKEN)
 
@@ -44,7 +45,7 @@ def global_error_handler(error, body, logger):
 def init_db():
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
-
+    # Restrict List
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS restrictlist (
         user_id TEXT PRIMARY KEY,
@@ -52,16 +53,38 @@ def init_db():
         added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Recap Settings
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS recap_settings (
         user_id TEXT PRIMARY KEY,
         recap_time TEXT DEFAULT '21:00'
         )
     """)
+    # Joining Settings
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS joining_settings (
         key TEXT PRIMARY KEY,
         value TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS purge_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        deadline_at TEXT NOT NULL,
+        active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS purge_targets (
+        session_id INTEGER NOT NULL,
+        user_id TEXT NOT NULL,
+        dm_channel_id TEXT,
+        responded INTEGER DEFAULT 0,
+        responded_at TIMESTAMP,
+        PRIMARY KEY (session_id, user_id)
         )
     """)
     conn.commit()
@@ -295,6 +318,9 @@ def handle_recap_submission(ack, body, client, view):
 @app.message()
 def check_for_ping_msgs(message, client, logger):
 
+    if message.get("channel_type") == "im":
+        return
+
     text = message.get("text", "")
 
     has_here = "<!here>" in text or "@here" in text
@@ -500,6 +526,7 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
         )
 
 
+# noo why do you LEAVE
 @app.event("member_left_channel")
 def handle_member_left_channel(body, client):
     channel = body["event"]["channel"]
@@ -618,6 +645,314 @@ def unrestrict_user_command(ack, respond, say, command, client):
 
     remove_user_from_restrictlist(user_id)
     respond(f"Sucessfully unrestricted <@{user_id}>!")
+
+
+@app.command("/channel-purge")
+def channel_purge_command(ack, body, client, respond):
+    ack()
+
+    if body["user_id"] != CMAN_USER_ID:
+        respond("You are not authorized to run this command :nuhuhvro:")
+        return
+
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "callback_id": "purge_schedule_modal",
+            "title": {
+                "type": "plain_text",
+                "text": "Channel Purge",
+                "emoji": True,
+            },
+            "submit": {
+                "type": "plain_text",
+                "text": "Schedule",
+                "emoji": True,
+            },
+            "close": {
+                "type": "plain_text",
+                "text": "Cancel",
+                "emoji": True,
+            },
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Schedule a time for a channel purge.",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "After the purge, stats (how many people were safe, kicked, errors) will be sent to you via DM.",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": ":stop: Anybody who doesn't reply to your DM will get auto-kicked if the deadline passes. :stop:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "purge_start_block",
+                    "element": {
+                        "type": "datetimepicker",
+                        "action_id": "purge_start_picker",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Start Date (when will your purge start?)",
+                        "emoji": True,
+                    },
+                    "optional": False,
+                },
+                {
+                    "type": "input",
+                    "block_id": "purge_end_block",
+                    "element": {
+                        "type": "datetimepicker",
+                        "action_id": "purge_end_picker",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "End Date (when will your purge end?)",
+                        "emoji": True,
+                    },
+                    "optional": False,
+                },
+            ],
+        },
+    )
+
+
+@app.view("purge_schedule_modal")
+def handle_purge_schedule_submission(ack, body, view, client):
+    ack()
+
+    tz = zoneinfo.ZoneInfo(BOT_TIMEZONE or "America/New_York")
+
+    if body["user"]["id"] != CMAN_USER_ID:
+        return
+
+    start_raw = view["state"]["values"]["purge_start_block"]["purge_start_picker"][
+        "selected_date_time"
+    ]
+    end_raw = view["state"]["values"]["purge_end_block"]["purge_end_picker"][
+        "selected_date_time"
+    ]
+
+    start_at = datetime.fromtimestamp(
+        int(start_raw), tz=tz
+    )  # TODO: use Env for timezone
+    end_at = datetime.fromtimestamp(int(end_raw), tz=tz)  # same as above
+
+    if end_at <= start_at:
+        client.chat_postMessage(
+            channel=CMAN_USER_ID, text="purge end time must be after the start time!"
+        )
+        return
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO purge_sessions (channel_id, created_by, start_at, deadline_at, active)
+        VALUES (?, ?, ?, ?, 1)
+        """,
+        (
+            PERSONAL_CHANNEL_ID,
+            body["user"]["id"],
+            start_at.isoformat(),
+            end_at.isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    client.chat_postMessage(
+        channel=CMAN_USER_ID,
+        text=(
+            f"Scheduled purge for <#{PERSONAL_CHANNEL_ID}>\n"
+            f"Start: {start_at:%Y-%m-%d %H:%M}"
+            f"End:  {end_at:%Y-%m-%d %H:%M}"
+        ),
+    )
+
+
+def schedule_purge_msg(client):
+    tz = zoneinfo.ZoneInfo(BOT_TIMEZONE or "America/New_York")
+    bot_user_id = client.auth_test()["user_id"]
+
+    while True:
+        try:
+            now = datetime.now(tz)
+            conn = sqlite3.connect("nudgebot.db")
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT id, channel_id, created_by, start_at, deadline_at, started_at
+                FROM purge_sessions
+                WHERE active = 1
+                ORDER BY start_at
+                """
+            )
+            sessions = cursor.fetchall()
+
+            for (
+                session_id,
+                channel_id,
+                created_by,
+                start_raw,
+                deadline_raw,
+                started_raw,
+            ) in sessions:
+                start_at = datetime.fromisoformat(start_raw)
+                deadline_at = datetime.fromisoformat(deadline_raw)
+
+                # start the PURGE >:3
+                if started_raw is None and now >= start_at:
+                    cursor.execute(
+                        "UPDATE purge_sessions SET started_at = ? WHERE id = ?",
+                        (now.isoformat(), session_id),
+                    )
+                    conn.commit()
+
+                    members_response = client.conversation_members(channel=channel_id)
+                    members = [
+                        user_id
+                        for user_id in members_response["members"]
+                        if user_id != bot_user_id
+                    ]
+
+                    dm_errors = 0
+                    for user_id in members:
+                        cursor.execute(
+                            """
+
+                            INSERT OR IGNORE into purge_targets
+                            (session_id, user_id, dm_channel_id, responded, responded_at)
+                            VALUES (?, ?, NULL, 0, NULL)
+                            """,
+                            (session_id, user_id),
+                        )
+                        try:
+                            dm = client.conversations_open(user=user_id)
+                            dm_channel_id = dm["channel"]["id"]
+                            cursor.execute(
+                                """
+
+                                UPDATE purge_targets
+                                SET dm_channel_id = ?
+                                WHERE session_id = ? AND user_id = ?
+                                """,
+                                (dm_channel_id, session_id, user_id),
+                            )
+                            client.chat_postMessage(
+                                channel=dm_channel_id,
+                                text=(
+                                    f"Hey, <@{user_id}>! :hii: <@{CMAN_USER_ID}> is doing a channel purge in <#{PERSONAL_CHANNEL_ID}>.\n"
+                                    f"Reply anything to me before <t:{int(deadline_at.timestamp())}:F> to stay safe from this purge!"
+                                ),
+                            )
+                        except Exception as e:
+                            dm_errors += 1
+                            sentry_sdk.capture_exception(e)
+
+                    conn.commit()
+
+                    client.chat_postMessage(
+                        channel=created_by,
+                        text=(
+                            f"Purge started for <#{channel_id}>!DM errors: {dm_errors}"
+                        ),
+                    )
+                elif started_raw is not None and now >= deadline_at:
+                    cursor.execute(
+                        """
+                        SELECT user_id
+                        FROM purge_targets
+                        WHERE session_id = ? AND responded = 0
+                        """,
+                        (session_id,),
+                    )
+                    pending_users = [row[0] for row in cursor.fetchall()]
+                    kicked = 0
+                    kick_errors = 0
+
+                    for user_id in pending_users:
+                        cursor.execute(
+                            """
+                            SELECT responded
+                            FROM purge_targets
+                            WHERE session_id = ? AND user_id = ?
+                            """,
+                            (session_id, user_id),
+                        )
+                        row = cursor.fetchone()
+                        if row and row[0]:
+                            continue
+                        try:
+                            client.conversations_kick(channel=channel_id, user=user_id)
+                            kicked += 1
+                        except Exception as e:
+                            kick_errors += 1
+                            sentry_sdk.capture_exception(e)
+                    cursor.execute(
+                        """
+                        UPDATE purge_sessions
+                        SET active = 0,
+                            completed_at = ?
+                        WHERE id = ?
+                        """,
+                        (now.isoformat(), session_id),
+                    )
+                    conn.commit()
+
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM purge_targets
+                        WHERE session_id = ? AND responded = 1
+                        """,
+                        (session_id,),
+                    )
+                    safe_count = cursor.fetchone()[0]
+
+                    client.chat_postMessage(
+                        channel=created_by,
+                        text=(
+                            f"Purge finished!\n"
+                            f"# of people safe from purge: {safe_count}\n"
+                            f"Kicked: {kicked}\n"
+                            f"Kick errors: {kick_errors}"
+                        ),
+                    )
+
+                elif started_raw is None and now >= deadline_at:
+                    cursor.execute(
+                        """
+                        UPDATE purge_sessions
+                        SET active = 0,
+                            completed_at = ?
+                        WHERE id = ?
+                        """,
+                        (now.isoformat(), session_id),
+                    )
+                    conn.commit()
+
+                conn.close()
+        except Exception as e:
+            sentry_sdk.capture_exception(e)
+        time.sleep(30)
 
 
 @app.command("/are-you-alive")
@@ -1178,7 +1513,9 @@ def schedule_recap_msg(client):
 
     while True:
         try:
-            tz = zoneinfo.ZoneInfo("America/New_York")
+            tz = zoneinfo.ZoneInfo(
+                "America/New_York"
+            )  # by default, the recap timezone is EST, you can change this!
             now = datetime.now(tz)
 
             current_time_str = now.strftime("%H:%M")
@@ -1261,5 +1598,10 @@ if __name__ == "__main__":
         target=schedule_recap_msg, args=(app.client,), daemon=True
     )
     scheduler_thread.start()
+
+    purge_thread = threading.Thread(
+        target=schedule_purge_msg, args=(app.client,), daemon=True
+    )
+    purge_thread.start()
 
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
