@@ -387,8 +387,6 @@ def handle_recap_submission(ack, body, client, view):
     client.chat_postMessage(
         channel=PERSONAL_CHANNEL_ID,
         blocks=blocks,
-        thread_ts=thread_ts,
-        reply_broadcast=True,
         text=f"<@{user_id}>'s recap for today!",
     )
 
