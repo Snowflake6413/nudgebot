@@ -1338,13 +1338,22 @@ def configure_recaps(ack, body, client):
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT recap_time FROM recap_settings WHERE user_id = ?",
+        "SELECT recap_time, send_hackatime_stats FROM recap_settings WHERE user_id = ?",
         (user_id,),
     )
     result = cursor.fetchone()
     conn.close()
 
     initial_time = result[0] if result is not None else "21:00"
+    send_hackatime_stats = result[1] if result is not None else 1
+    initial_hackatime_option = {
+        "text": {
+            "type": "plain_text",
+            "text": "Yes" if int(send_hackatime_stats) == 1 else "No",
+            "emoji": True,
+        },
+        "value": "value-0" if int(send_hackatime_stats) == 1 else "value-1",
+    }
 
     client.views_open(
         trigger_id=body["trigger_id"],
@@ -1426,14 +1435,7 @@ def configure_recaps(ack, body, client):
                                 "value": "value-1",
                             },
                         ],
-                        "initial_option": {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Yes",
-                                "emoji": True,
-                            },
-                            "value": "value-0",
-                        },
+                        "initial_option": initial_hackatime_option,
                     },
                     "label": {
                         "type": "plain_text",
