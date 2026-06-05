@@ -84,7 +84,7 @@ def init_db():
         try:
             cursor.execute(f"ALTER TABLE purge_sessions ADD COLUMN {col} {typedef}")
         except sqlite3.OperationalError:
-            pass 
+            pass
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS purge_targets (
         session_id INTEGER NOT NULL,
@@ -1164,9 +1164,8 @@ def update_home_tab(client, event):
             {
                 "type": "section",
                 "text": {
-                    "type": "plain_text",
+                    "type": "mrkdwn",
                     "text": f"hi, <@{CMAN_USER_ID}>! :drgn_wave: what settings would you like to configure your nudgebot? ",
-                    "emoji": True,
                 },
             },
             {"type": "divider"},
