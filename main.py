@@ -77,10 +77,15 @@ def init_db():
         deadline_at TEXT NOT NULL,
         active INTEGER DEFAULT 1,
         started_at TIMESTAMP,
+        completed_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    for col, typedef in [("start_at", "TEXT"), ("started_at", "TIMESTAMP")]:
+    for col, typedef in [
+        ("start_at", "TEXT"),
+        ("started_at", "TIMESTAMP"),
+        ("completed_at", "TIMESTAMP"),
+    ]:
         try:
             cursor.execute(f"ALTER TABLE purge_sessions ADD COLUMN {col} {typedef}")
         except sqlite3.OperationalError:
@@ -152,7 +157,7 @@ def handle_recap_button(ack, body, client, logger):
     if user_id != CMAN_USER_ID:
         client.chat_postEphemeral(
             channel=body["channel"]["id"],
-            user=user_id,
+            users=user_id,
             text=f"Only <@{CMAN_USER_ID}> can only answer the recap prompt, ya goober! :neocat_knives:",
         )
         return
@@ -530,7 +535,7 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
     bot_user_id = context.get("bot_user_id")
 
     if is_user_restricted(new_user):
-        client.conversations_kick(channel=channel, user=new_user)
+        client.conversations_kick(channel=channel, users=new_user)
         return
 
     if new_user == bot_user_id and channel != PERSONAL_CHANNEL_ID:
@@ -864,8 +869,8 @@ def handle_purge_schedule_submission(ack, body, view, client):
         channel=CMAN_USER_ID,
         text=(
             f"Scheduled purge for <#{PERSONAL_CHANNEL_ID}>\n"
-            f"Start: {start_at:%Y-%m-%d %H:%M}"
-            f"End:  {end_at:%Y-%m-%d %H:%M}"
+            f"Start: {start_at:%Y-%m-%d %H:%M}\n"
+            f"End:  {end_at:%Y-%m-%d %H:%M}\n"
         ),
     )
 
@@ -875,6 +880,7 @@ def schedule_purge_msg(client):
     bot_user_id = client.auth_test()["user_id"]
 
     while True:
+        conn = None
         try:
             now = datetime.now(tz)
             conn = sqlite3.connect("nudgebot.db")
@@ -900,6 +906,10 @@ def schedule_purge_msg(client):
             ) in sessions:
                 start_at = datetime.fromisoformat(start_raw)
                 deadline_at = datetime.fromisoformat(deadline_raw)
+                if start_at.tzinfo is None:
+                    start_at = start_at.replace(tzinfo=tz)
+                if deadline_at.tzinfo is None:
+                    deadline_at = deadline_at.replace(tzinfo=tz)
 
                 # start the PURGE >:3
                 if started_raw is None and now >= start_at:
@@ -909,11 +919,11 @@ def schedule_purge_msg(client):
                     )
                     conn.commit()
 
-                    members_response = client.conversation_members(channel=channel_id)
+                    members_response = client.conversations_members(channel=channel_id)
                     members = [
                         user_id
                         for user_id in members_response["members"]
-                        if user_id != bot_user_id
+                        if user_id not in (bot_user_id, CMAN_USER_ID)
                     ]
 
                     dm_errors = 0
@@ -928,7 +938,7 @@ def schedule_purge_msg(client):
                             (session_id, user_id),
                         )
                         try:
-                            dm = client.conversations_open(user=user_id)
+                            dm = client.conversations_open(users=user_id)
                             dm_channel_id = dm["channel"]["id"]
                             cursor.execute(
                                 """
@@ -942,8 +952,9 @@ def schedule_purge_msg(client):
                             client.chat_postMessage(
                                 channel=dm_channel_id,
                                 text=(
-                                    f"Hey, <@{user_id}>! :hii: <@{CMAN_USER_ID}> is doing a channel purge in <#{PERSONAL_CHANNEL_ID}>.\n"
-                                    f"Reply anything to me before <t:{int(deadline_at.timestamp())}:F> to stay safe from this purge!"
+                                    f"Hey, <@{user_id}>! :hii: <@{CMAN_USER_ID}> is doing a channel purge in <#{PERSONAL_CHANNEL_ID}>."
+                                    f" The deadline is {deadline_at.strftime('%B %d, %Y at %#I:%M %p %Z')} (bot timezone)."
+                                    f" Reply anything to me before then to stay safe from this purge!"
                                 ),
                             )
                         except Exception as e:
@@ -955,7 +966,8 @@ def schedule_purge_msg(client):
                     client.chat_postMessage(
                         channel=created_by,
                         text=(
-                            f"Purge started for <#{channel_id}>!DM errors: {dm_errors}"
+                            f"Purge started for <#{channel_id}>!\n"
+                            "DM errors: {dm_errors}"
                         ),
                     )
                 elif started_raw is not None and now >= deadline_at:
@@ -984,7 +996,7 @@ def schedule_purge_msg(client):
                         if row and row[0]:
                             continue
                         try:
-                            client.conversations_kick(channel=channel_id, user=user_id)
+                            client.conversations_kick(channel=channel_id, users=user_id)
                             kicked += 1
                         except Exception as e:
                             kick_errors += 1
@@ -1031,10 +1043,14 @@ def schedule_purge_msg(client):
                         (now.isoformat(), session_id),
                     )
                     conn.commit()
-
-                conn.close()
         except Exception as e:
             sentry_sdk.capture_exception(e)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         time.sleep(30)
 
 
