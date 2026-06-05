@@ -1081,7 +1081,7 @@ def joining_guardian(ack, respond, say, command, client, body):
             "type": "section",
             "text": {
                 "type": "plain_text",
-                "text": f"New request to <@{CMAN_USER_ID}>'s personal channel :tm:",
+                "text": f"New request to <@{PERSONAL_CHANNEL_ID}>'s personal channel :tm:",
                 "emoji": True,
             },
         },
