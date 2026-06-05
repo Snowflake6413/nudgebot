@@ -1283,7 +1283,7 @@ def update_home_tab(client, event):
 def configure_invitations(ack, client, body):
     ack()
 
-    client.view_open(
+    client.views_open(
         trigger_id=body["trigger_id"],
         view={
             "type": "modal",
