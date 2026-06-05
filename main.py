@@ -1454,8 +1454,8 @@ def handle_recap_config_submission(ack, body, view, client):
     cursor = conn.cursor()
     cursor.execute(
         """
-        INSERT INTO recap_settings (user_id, recap_time)
-        VALUES (?, ?)
+        INSERT INTO recap_settings (user_id, recap_time, send_hackatime_stats)
+        VALUES (?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
                    recap_time=excluded.recap_time,
                    send_hackatime_stats=excluded.send_hackatime_stats
