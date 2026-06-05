@@ -1334,6 +1334,18 @@ def configure_invitations(ack, client, body):
 def configure_recaps(ack, body, client):
     ack()
 
+    user_id = body["user"]["id"]
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT recap_time FROM recap_settings WHERE user_id = ?",
+        (user_id,),
+    )
+    result = cursor.fetchone()
+    conn.close()
+
+    initial_time = result[0] if result is not None else "21:00"
+
     client.views_open(
         trigger_id=body["trigger_id"],
         view={
@@ -1360,7 +1372,7 @@ def configure_recaps(ack, body, client):
                     "block_id": "timepicker_block",
                     "element": {
                         "type": "timepicker",
-                        "initial_time": "13:37",
+                        "initial_time": initial_time,
                         "placeholder": {
                             "type": "plain_text",
                             "text": "Select time",
