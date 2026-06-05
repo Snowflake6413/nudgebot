@@ -1674,7 +1674,6 @@ def schedule_recap_msg(client):
                         "text": {
                             "type": "mrkdwn",
                             "text": f"<@{CMAN_USER_ID}>, it's {current_time_str} so it's time for your daily recap! :neocat_3c:",
-                            "emoji": True,
                         },
                     },
                     {
