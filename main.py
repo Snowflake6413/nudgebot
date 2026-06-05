@@ -269,7 +269,7 @@ def handle_recap_button(ack, body, client, logger):
 
 
 @app.view("recap_view")
-def handle_recap_submission(ack, body, client, view):
+def handle_recap_submission(ack, body, client, view, logger):
     ack()
 
     user_id = body["user"]["id"]
@@ -389,6 +389,12 @@ def handle_recap_submission(ack, body, client, view):
         blocks=blocks,
         text=f"<@{user_id}>'s recap for today!",
     )
+
+    if thread_ts:
+        try:
+            client.chat_delete(channel=PERSONAL_CHANNEL_ID, ts=thread_ts)
+        except Exception as e:
+            sentry_sdk.capture_exception(e)
 
 
 # Auto-Thread feature
