@@ -80,12 +80,11 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Migrate existing databases that predate start_at / started_at columns
     for col, typedef in [("start_at", "TEXT"), ("started_at", "TIMESTAMP")]:
         try:
             cursor.execute(f"ALTER TABLE purge_sessions ADD COLUMN {col} {typedef}")
         except sqlite3.OperationalError:
-            pass  # column already exists
+            pass 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS purge_targets (
         session_id INTEGER NOT NULL,
