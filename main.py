@@ -61,9 +61,9 @@ def init_db():
         send_hackatime_stats INTEGER DEFAULT 1
         )
     """)
-    # Joining Settings
+    # Bot Settings
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS joining_settings (
+        CREATE TABLE IF NOT EXISTS bot_settings (
         key TEXT PRIMARY KEY,
         value TEXT
         )
@@ -141,7 +141,16 @@ def remove_user_from_restrictlist(user_id: str):
 def is_idv_required() -> bool:
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT value FROM joining_settings WHERE key = 'require_idv'")
+    cursor.execute("SELECT value FROM bot_settings WHERE key = 'require_idv'")
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None and str(result[0]) == "1"
+
+
+def auto_thread_toggle() -> bool:
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM bot_settings WHERE key = 'auto_thread_toggle'")
     result = cursor.fetchone()
     conn.close()
     return result is not None and str(result[0]) == "1"
@@ -150,7 +159,7 @@ def is_idv_required() -> bool:
 def is_joining_paused() -> bool:
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT value FROM joining_settings WHERE key = 'is_paused'")
+    cursor.execute("SELECT value FROM bot_settings WHERE key = 'is_paused'")
     result = cursor.fetchone()
     conn.close()
     return result is not None and str(result[0]) == "1"
@@ -498,10 +507,8 @@ def check_for_ping_msgs(message, client, logger):
 
     if has_here or has_channel or has_usergroup:
         logger.info(f"Mention detected OwO {text}")
-        try:
+        if auto_thread_toggle():
             client.chat_postMessage(channel=message.get("channel"), text=":thread:")
-        except Exception as e:
-            sentry_sdk.capture_exception(e)
 
 
 # advertise STUFF uwu
@@ -1439,6 +1446,113 @@ def update_home_tab(client, event):
     )
 
 
+@app.action("actionId-0")
+def configure_auto_thread(ack, client, body):
+    ack()
+
+    toggle_value = auto_thread_toggle()
+
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "callback_id": "auto_thread_settings_action",
+            "title": {
+                "type": "plain_text",
+                "text": "Auto-Thread Settings",
+                "emoji": True,
+            },
+            "submit": {"type": "plain_text", "text": "Save", "emoji": True},
+            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "what would you like to configure for your Auto-Thread settings? :rac_woah:",
+                    },
+                },
+                {"type": "divider"},
+                {
+                    "type": "input",
+                    "block_id": "auto_thread_input",
+                    "element": {
+                        "type": "static_select",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select...",
+                            "emoji": True,
+                        },
+                        "options": [
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Enabled",
+                                    "emoji": True,
+                                },
+                                "value": "1",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Disabled",
+                                    "emoji": True,
+                                },
+                                "value": "0",
+                            },
+                        ],
+                        "initial_option": (
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Enabled",
+                                    "emoji": True,
+                                },
+                                "value": "1",
+                            }
+                            if toggle_value
+                            else {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Disabled",
+                                    "emoji": True,
+                                },
+                                "value": "0",
+                            }
+                        ),
+                        "action_id": "auto_thread_select",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Auto Threading",
+                        "emoji": True,
+                    },
+                },
+            ],
+        },
+    )
+
+
+@app.view("auto_thread_settings_action")
+def handle_auto_thread_submission(ack, body, client):
+    ack()
+    values = body["view"]["state"]["values"]
+
+    auto_thread_value = values["auto_thread_input"]["auto_thread_select"][
+        "selected_option"
+    ]["value"]
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO bot_settings (key, value) VALUES ('auto_thread_toggle', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = ?",
+        (auto_thread_value, auto_thread_value),
+    )
+    conn.commit()
+    conn.close()
+
+
 @app.action("invitation_settings_action")
 def configure_invitations(ack, client, body):
     ack()
@@ -1449,57 +1563,158 @@ def configure_invitations(ack, client, body):
         trigger_id=body["trigger_id"],
         view={
             "type": "modal",
+            "callback_id": "invitation_settings_action",
             "title": {"type": "plain_text", "text": "Join Settings", "emoji": True},
-            "submit": {"type": "plain_text", "text": "Submit", "emoji": True},
+            "submit": {"type": "plain_text", "text": "Save", "emoji": True},
             "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
             "blocks": [
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "what would you like to configure for your joining settings? :rac_woah:",
+                        "text": "what would you like to configure for your invitation settings? :rac_woah:",
                     },
                 },
                 {"type": "divider"},
                 {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"{':green_circle:' if is_paused else ':red_circle:'} *Pause Joining*\nstops people from trying to join, regardless of restriction status.",
-                    },
-                    "accessory": {
-                        "type": "button",
-                        "text": {
+                    "type": "input",
+                    "block_id": "pause_joining_input",
+                    "element": {
+                        "type": "static_select",
+                        "placeholder": {
                             "type": "plain_text",
-                            "text": "Turn Off" if is_paused else "Turn On",
+                            "text": "Select...",
                             "emoji": True,
                         },
-                        "style": "danger" if is_paused else "primary",
-                        "value": "click_me_123",
-                        "action_id": "toggle_pause_action",
+                        "options": [
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Enabled (joining paused)",
+                                    "emoji": True,
+                                },
+                                "value": "1",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Disabled (joining allowed)",
+                                    "emoji": True,
+                                },
+                                "value": "0",
+                            },
+                        ],
+                        "initial_option": (
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Enabled (joining paused)",
+                                    "emoji": True,
+                                },
+                                "value": "1",
+                            }
+                            if is_paused
+                            else {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Disabled (joining allowed)",
+                                    "emoji": True,
+                                },
+                                "value": "0",
+                            }
+                        ),
+                        "action_id": "pause_select",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Pause Joining",
+                        "emoji": True,
                     },
                 },
                 {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"{':green_circle:' if idv_required else ':red_circle:'} *Require IDV to Join*\nnon-IDV users will be blocked from requesting access.",
-                    },
-                    "accessory": {
-                        "type": "button",
-                        "text": {
+                    "type": "input",
+                    "block_id": "idv_required_input",
+                    "element": {
+                        "type": "static_select",
+                        "placeholder": {
                             "type": "plain_text",
-                            "text": "Turn Off" if idv_required else "Turn On",
+                            "text": "Select...",
                             "emoji": True,
                         },
-                        "style": "danger" if idv_required else "primary",
-                        "value": "click_me_123",
-                        "action_id": "toggle_idv_action",
+                        "options": [
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Required (block non-IDV)",
+                                    "emoji": True,
+                                },
+                                "value": "1",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Not Required (allow all)",
+                                    "emoji": True,
+                                },
+                                "value": "0",
+                            },
+                        ],
+                        "initial_option": (
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Required (block non-IDV)",
+                                    "emoji": True,
+                                },
+                                "value": "1",
+                            }
+                            if idv_required
+                            else {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Not Required (allow all)",
+                                    "emoji": True,
+                                },
+                                "value": "0",
+                            }
+                        ),
+                        "action_id": "idv_select",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Require IDV to Join",
+                        "emoji": True,
                     },
                 },
             ],
         },
     )
+
+
+@app.view("invitation_settings_action")
+def handle_join_settings_submission(ack, body, client):
+    ack()
+    values = body["view"]["state"]["values"]
+
+    pause_value = values["pause_joining_input"]["pause_select"]["selected_option"][
+        "value"
+    ]
+    idv_value = values["idv_required_input"]["idv_select"]["selected_option"]["value"]
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO bot_settings (key, value) VALUES ('is_paused', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = ?",
+        (pause_value, pause_value),
+    )
+    cursor.execute(
+        "INSERT INTO bot_settings (key, value) VALUES ('require_idv', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = ?",
+        (idv_value, idv_value),
+    )
+    conn.commit()
+    conn.close()
 
 
 def toggle_joining_setting(key: str, ack, client, body):
@@ -1507,72 +1722,12 @@ def toggle_joining_setting(key: str, ack, client, body):
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO joining_settings (key, value) VALUES (? ,'1') "
+        "INSERT INTO bot_settings (key, value) VALUES (? ,'1') "
         "ON CONFLICT(key) DO UPDATE SET value = CASE when value = '1' THEN '0' ELSE '1' END",
         (key,),
     )
     conn.commit()
     conn.close()
-
-    # Re open modal with updated settings this time
-    is_paused = is_joining_paused()
-    idv_required = is_idv_required()
-
-    client.views_open(
-        trigger_id=body["trigger_id"],
-        view={
-            "type": "modal",
-            "title": {"type": "plain_text", "text": "Join Settings", "emoji": True},
-            "submit": {"type": "plain_text", "text": "Submit", "emoji": True},
-            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "what would you like to configure for your joining settings? :rac_woah:",
-                    },
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"{':green_circle:' if is_paused else ':red_circle:'} *Pause Joining*\nstops people from trying to join, regardless of restriction status.",
-                    },
-                    "accessory": {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Turn Off" if is_paused else "Turn On",
-                            "emoji": True,
-                        },
-                        "style": "danger" if is_paused else "primary",
-                        "value": "click_me_123",
-                        "action_id": "toggle_pause_action",
-                    },
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"{':green_circle:' if idv_required else ':red_circle:'} *Require IDV to Join*\nnon-IDV users will be blocked from requesting access.",
-                    },
-                    "accessory": {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Turn Off" if idv_required else "Turn On",
-                            "emoji": True,
-                        },
-                        "style": "danger" if idv_required else "primary",
-                        "value": "click_me_123",
-                        "action_id": "toggle_idv_action",
-                    },
-                },
-            ],
-        },
-    )
 
 
 @app.action("toggle_pause_action")
