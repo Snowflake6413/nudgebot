@@ -138,6 +138,15 @@ def remove_user_from_restrictlist(user_id: str):
     conn.close()
 
 
+def is_idv_required() -> bool:
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM joining_settings WHERE key = 'require_idv'")
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None and str(result[0]) == "1"
+
+
 def is_joining_paused() -> bool:
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
@@ -1193,6 +1202,25 @@ def joining_guardian(ack, respond, say, command, client, body):
         respond(f"you are already in {PERSONAL_CHANNEL_ID}, you goober :neocat_blank:")
         return
 
+    if is_joining_paused():
+        respond(
+            "Joining is currently paused, please try again later when joining is unpaused. :neocat_sad:",
+        )
+        return
+
+    if is_idv_required():
+        response = requests.get(
+            "https://auth.hackclub.com/api/external/check",
+            params={"slack_id": invoker_user_id},
+        )
+        idv_data = response.json()
+        idv_result = idv_data.get("result")
+        if idv_result != "verified_eligible" or "verified_but_over_18":
+            respond(
+                f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! :neocat_sad: complete your verifcation and try again later!",
+            )
+            return
+
     client.chat_postMessage(
         channel=invoker_user_id,
         text=f":mhm:, <@{invoker_user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
@@ -1414,6 +1442,8 @@ def update_home_tab(client, event):
 @app.action("invitation_settings_action")
 def configure_invitations(ack, client, body):
     ack()
+    is_paused = is_joining_paused()
+    idv_required = is_idv_required()
 
     client.views_open(
         trigger_id=body["trigger_id"],
@@ -1426,39 +1456,133 @@ def configure_invitations(ack, client, body):
                 {
                     "type": "section",
                     "text": {
-                        "type": "plain_text",
-                        "text": "what would you like to configure for your invitation settings? :rac_woah:",
-                        "emoji": True,
+                        "type": "mrkdwn",
+                        "text": "what would you like to configure for your joining settings? :rac_woah:",
+                    },
+                },
+                {"type": "divider"},
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{':green_circle:' if is_paused else ':red_circle:'} *Pause Joining*\nstops people from trying to join, regardless of restriction status.",
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Turn Off" if is_paused else "Turn On",
+                            "emoji": True,
+                        },
+                        "style": "danger" if is_paused else "primary",
+                        "value": "click_me_123",
+                        "action_id": "toggle_pause_action",
                     },
                 },
                 {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": ":stop: Pause Joining",
-                                "emoji": True,
-                            },
-                            "value": "click_me_123",
-                            "action_id": "pause_joining_action",
-                        }
-                    ],
-                },
-                {
-                    "type": "context",
-                    "elements": [
-                        {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{':green_circle:' if idv_required else ':red_circle:'} *Require IDV to Join*\nnon-IDV users will be blocked from requesting access.",
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
                             "type": "plain_text",
-                            "text": "this will stop people from trying to join your channel. regardless if they are restricted.",
+                            "text": "Turn Off" if idv_required else "Turn On",
                             "emoji": True,
-                        }
-                    ],
+                        },
+                        "style": "danger" if idv_required else "primary",
+                        "value": "click_me_123",
+                        "action_id": "toggle_idv_action",
+                    },
                 },
             ],
         },
     )
+
+
+def toggle_joining_setting(key: str, ack, client, body):
+    ack()
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO joining_settings (key, value) VALUES (? ,'1') "
+        "ON CONFLICT(key) DO UPDATE SET value = CASE when value = '1' THEN '0' ELSE '1' END",
+        (key,),
+    )
+    conn.commit()
+    conn.close()
+
+    # Re open modal with updated settings this time
+    is_paused = is_joining_paused()
+    idv_required = is_idv_required()
+
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Join Settings", "emoji": True},
+            "submit": {"type": "plain_text", "text": "Submit", "emoji": True},
+            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "what would you like to configure for your joining settings? :rac_woah:",
+                    },
+                },
+                {"type": "divider"},
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{':green_circle:' if is_paused else ':red_circle:'} *Pause Joining*\nstops people from trying to join, regardless of restriction status.",
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Turn Off" if is_paused else "Turn On",
+                            "emoji": True,
+                        },
+                        "style": "danger" if is_paused else "primary",
+                        "value": "click_me_123",
+                        "action_id": "toggle_pause_action",
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{':green_circle:' if idv_required else ':red_circle:'} *Require IDV to Join*\nnon-IDV users will be blocked from requesting access.",
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Turn Off" if idv_required else "Turn On",
+                            "emoji": True,
+                        },
+                        "style": "danger" if idv_required else "primary",
+                        "value": "click_me_123",
+                        "action_id": "toggle_idv_action",
+                    },
+                },
+            ],
+        },
+    )
+
+
+@app.action("toggle_pause_action")
+def handle_toggle_pause(ack, client, body):
+    toggle_joining_setting("is_paused", ack, client, body)
+
+
+@app.action("toggle_idv_action")
+def handle_toggle_idv(ack, client, body):
+    toggle_joining_setting("require_idv", ack, client, body)
 
 
 # Configuring the recap:tm:
@@ -1631,6 +1755,26 @@ def handle_join_button_app_home(ack, respond, say, body, client):
             text=f"you are already in <#{PERSONAL_CHANNEL_ID}>, you goober :neocat_blank:",
         )
         return
+
+    if is_joining_paused():
+        client.chat_postMessage(
+            channel=user_id,
+            text="Joining is currently paused, please try again later when joining is unpaused. :neocat_sad:",
+        )
+        return
+
+    if is_idv_required():
+        response = requests.get(
+            "https://auth.hackclub.com/api/external/check", params={"slack_id": user_id}
+        )
+        idv_data = response.json()
+        idv_result = idv_data.get("result")
+        if idv_result != "verified_eligible" or "verified_but_over_18":
+            client.chat_postMessage(
+                channel=user_id,
+                text=f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! :neocat_sad: complete your verifcation and try again later!",
+            )
+            return
 
     client.chat_postMessage(
         channel=user_id,
