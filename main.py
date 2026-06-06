@@ -402,6 +402,78 @@ def handle_recap_submission(ack, body, client, view, logger):
             sentry_sdk.capture_exception(e)
 
 
+# handle purge responses
+@app.message()
+def handle_purge_response(message, client, logger):
+    if message.get("subtype") is not None:
+        return
+
+    channel_id = message.get("channel")
+    user_id = message.get("user")
+    channel_type = message.get("channel_type")
+
+    if not channel_id or not user_id:
+        return
+
+    if channel_type != "im" and not str(channel_id).startswith("D"):
+        return
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT pt.session_id
+            FROM purge_targets pt
+            JOIN purge_sessions ps ON pt.session_id = ps.id
+            WHERE pt.dm_channel_id = ?
+              AND pt.responded = 0
+              AND ps.active = 1
+              AND ps.started_at IS NOT NULL
+            ORDER BY ps.started_at DESC
+            LIMIT 1
+            """,
+            (channel_id,),
+        )
+        row = cursor.fetchone()
+
+        if row is None:
+            cursor.execute(
+                """
+                SELECT pt.session_id
+                FROM purge_targets pt
+                JOIN purge_sessions ps ON pt.session_id = ps.id
+                WHERE pt.user_id = ?
+                  AND pt.responded = 0
+                  AND ps.active = 1
+                  AND ps.started_at IS NOT NULL
+                ORDER BY ps.started_at DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            )
+            row = cursor.fetchone()
+
+        if row:
+            cursor.execute(
+                """
+                UPDATE purge_targets
+                SET responded = 1, responded_at = ?
+                WHERE session_id = ? AND user_id = ?
+                """,
+                (datetime.now().isoformat(), row[0], user_id),
+            )
+            conn.commit()
+            client.chat_postMessage(
+                channel=channel_id,
+                text="you're safe. :white_check_mark:",
+            )
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+    finally:
+        conn.close()
+
+
 # Auto-Thread feature
 @app.message()
 def check_for_ping_msgs(message, client, logger):
@@ -949,6 +1021,7 @@ def schedule_purge_msg(client):
                                 """,
                                 (dm_channel_id, session_id, user_id),
                             )
+                            conn.commit()
                             client.chat_postMessage(
                                 channel=dm_channel_id,
                                 text=(
@@ -961,13 +1034,11 @@ def schedule_purge_msg(client):
                             dm_errors += 1
                             sentry_sdk.capture_exception(e)
 
-                    conn.commit()
-
                     client.chat_postMessage(
                         channel=created_by,
                         text=(
                             f"Purge started for <#{channel_id}>!\n"
-                            "DM errors: {dm_errors}"
+                            f"DM errors: {dm_errors}"
                         ),
                     )
                 elif started_raw is not None and now >= deadline_at:
@@ -1058,6 +1129,47 @@ def schedule_purge_msg(client):
 def bot_health_check(ack, respond, command):
     ack()
     respond("yes i am alive thank you for asking")
+
+
+@app.command("/clean-up-group-list")
+def usergroup_cleaner(ack, respond, command, client):
+    ack()
+
+    invoker_user_id = command["user_id"]
+    if invoker_user_id != CMAN_USER_ID:
+        respond("sowwy but you can't run this command! :nuhuhvro:")
+        return
+
+    try:
+        group_info = client.usergroups_user_list(usergroup=PERSONAL_USERGROUP_ID)
+        usergroup_users = group_info.get("users", [])
+
+        if not usergroup_users:
+            respond("looks like your usergroup is empty, nothing to clean up!")
+            return
+
+        members_response = client.conversations_members(channel=PERSONAL_CHANNEL_ID)
+        channel_members = members_response.get("members", [])
+
+        to_remove = [uid for uid in usergroup_users if uid not in channel_members]
+
+        if not to_remove:
+            respond(
+                "looks like everyone in the usergroup is already in your channel, so there's nothing to clean up!"
+            )
+            return
+
+        updated_users = [uid for uid in usergroup_users if uid in channel_members]
+        client.usergroups_users_update(
+            usergroup=PERSONAL_USERGROUP_ID, users=",".join(updated_users)
+        )
+        respond(
+            f"Cleaned up the usergroup!\n"
+            f"Swept up {len(to_remove)} user(s).\n"
+            f"Kept {len(to_remove)} user(s) who are still in this channel."
+        )
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
 
 
 # Join via Slash command
