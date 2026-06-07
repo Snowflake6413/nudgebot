@@ -420,9 +420,9 @@ def handle_recap_submission(ack, body, client, view, logger):
             sentry_sdk.capture_exception(e)
 
 
-# handle purge responses
+# Handle purge responses AND auto threading
 @app.message()
-def handle_purge_response(message, client, logger):
+def handle_message(message, client, logger):
     if message.get("subtype") is not None:
         return
 
@@ -433,72 +433,65 @@ def handle_purge_response(message, client, logger):
     if not channel_id or not user_id:
         return
 
-    if channel_type != "im" and not str(channel_id).startswith("D"):
-        return
-
-    conn = sqlite3.connect("nudgebot.db")
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
-            SELECT pt.session_id
-            FROM purge_targets pt
-            JOIN purge_sessions ps ON pt.session_id = ps.id
-            WHERE pt.dm_channel_id = ?
-              AND pt.responded = 0
-              AND ps.active = 1
-              AND ps.started_at IS NOT NULL
-            ORDER BY ps.started_at DESC
-            LIMIT 1
-            """,
-            (channel_id,),
-        )
-        row = cursor.fetchone()
-
-        if row is None:
+    # Purge response handling
+    if channel_type == "im" or str(channel_id).startswith("D"):
+        conn = sqlite3.connect("nudgebot.db")
+        cursor = conn.cursor()
+        try:
             cursor.execute(
                 """
                 SELECT pt.session_id
                 FROM purge_targets pt
                 JOIN purge_sessions ps ON pt.session_id = ps.id
-                WHERE pt.user_id = ?
+                WHERE pt.dm_channel_id = ?
                   AND pt.responded = 0
                   AND ps.active = 1
                   AND ps.started_at IS NOT NULL
                 ORDER BY ps.started_at DESC
                 LIMIT 1
                 """,
-                (user_id,),
+                (channel_id,),
             )
             row = cursor.fetchone()
 
-        if row:
-            cursor.execute(
-                """
-                UPDATE purge_targets
-                SET responded = 1, responded_at = ?
-                WHERE session_id = ? AND user_id = ?
-                """,
-                (datetime.now().isoformat(), row[0], user_id),
-            )
-            conn.commit()
-            client.chat_postMessage(
-                channel=channel_id,
-                text="you're safe. :white_check_mark:",
-            )
-    except Exception as e:
-        sentry_sdk.capture_exception(e)
-    finally:
-        conn.close()
+            if row is None:
+                cursor.execute(
+                    """
+                    SELECT pt.session_id
+                    FROM purge_targets pt
+                    JOIN purge_sessions ps ON pt.session_id = ps.id
+                    WHERE pt.user_id = ?
+                      AND pt.responded = 0
+                      AND ps.active = 1
+                      AND ps.started_at IS NOT NULL
+                    ORDER BY ps.started_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id,),
+                )
+                row = cursor.fetchone()
 
-
-# Auto-Thread feature
-@app.message()
-def check_for_ping_msgs(message, client, logger):
-
-    if message.get("channel_type") == "im":
+            if row:
+                cursor.execute(
+                    """
+                    UPDATE purge_targets
+                    SET responded = 1, responded_at = ?
+                    WHERE session_id = ? AND user_id = ?
+                    """,
+                    (datetime.now().isoformat(), row[0], user_id),
+                )
+                conn.commit()
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text="you're safe. :white_check_mark:",
+                )
+        except Exception as e:
+            sentry_sdk.capture_exception(e)
+        finally:
+            conn.close()
         return
 
+    # Auto thread handling
     text = message.get("text", "")
 
     has_here = "<!here>" in text or "@here" in text
@@ -506,9 +499,8 @@ def check_for_ping_msgs(message, client, logger):
     has_usergroup = f"<!subteam^{PERSONAL_USERGROUP_ID}" in text
 
     if has_here or has_channel or has_usergroup:
-        logger.info(f"Mention detected OwO {text}")
         if auto_thread_toggle():
-            client.chat_postMessage(channel=message.get("channel"), text=":thread:")
+            client.chat_postMessage(channel=channel_id, text=":thread:")
 
 
 # advertise STUFF uwu
