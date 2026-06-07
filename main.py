@@ -156,6 +156,50 @@ def auto_thread_toggle() -> bool:
     return result is not None and str(result[0]) == "1"
 
 
+def contains_auto_thread_trigger(message) -> bool:
+    def has_trigger_text(text: str) -> bool:
+        if not text:
+            return False
+
+        if "<!here>" in text or "@here" in text:
+            return True
+        if "<!channel>" in text or "@channel" in text:
+            return True
+        if PERSONAL_USERGROUP_ID and f"<!subteam^{PERSONAL_USERGROUP_ID}" in text:
+            return True
+
+        return False
+
+    def scan(value) -> bool:
+        if isinstance(value, str):
+            return has_trigger_text(value)
+
+        if isinstance(value, list):
+            return any(scan(item) for item in value)
+
+        if isinstance(value, dict):
+            if value.get("type") == "broadcast" and value.get("range") in {
+                "here",
+                "channel",
+            }:
+                return True
+
+            if value.get("type") in {"usergroup", "user_group"}:
+                if not PERSONAL_USERGROUP_ID:
+                    return True
+
+                if value.get("usergroup_id") == PERSONAL_USERGROUP_ID:
+                    return True
+                if value.get("subteam_id") == PERSONAL_USERGROUP_ID:
+                    return True
+
+            return any(scan(item) for item in value.values())
+
+        return False
+
+    return scan(message.get("text", "")) or scan(message.get("blocks", []))
+
+
 def is_joining_paused() -> bool:
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
@@ -423,18 +467,19 @@ def handle_recap_submission(ack, body, client, view, logger):
 # Handle purge responses AND auto threading
 @app.message()
 def handle_message(message, client, logger):
-    if message.get("subtype") is not None:
+    subtype = message.get("subtype")
+    if subtype in {"message_changed", "message_deleted"}:
         return
 
     channel_id = message.get("channel")
     user_id = message.get("user")
     channel_type = message.get("channel_type")
 
-    if not channel_id or not user_id:
+    if not channel_id:
         return
 
     # Purge response handling
-    if channel_type == "im" or str(channel_id).startswith("D"):
+    if user_id and (channel_type == "im" or str(channel_id).startswith("D")):
         conn = sqlite3.connect("nudgebot.db")
         cursor = conn.cursor()
         try:
@@ -492,13 +537,7 @@ def handle_message(message, client, logger):
         return
 
     # Auto thread handling
-    text = message.get("text", "")
-
-    has_here = "<!here>" in text or "@here" in text
-    has_channel = "<!channel>" in text or "@channel" in text
-    has_usergroup = f"<!subteam^{PERSONAL_USERGROUP_ID}" in text
-
-    if has_here or has_channel or has_usergroup:
+    if contains_auto_thread_trigger(message):
         if auto_thread_toggle():
             client.chat_postMessage(channel=channel_id, text=":thread:")
 
