@@ -42,9 +42,17 @@ def init_db():
         CREATE TABLE IF NOT EXISTS recap_settings (
         user_id TEXT PRIMARY KEY,
         recap_time TEXT DEFAULT '21:00',
-        send_hackatime_stats INTEGER DEFAULT 1
+        send_hackatime_stats INTEGER DEFAULT 1,
+        recaps_disabled INTEGER DEFAULT 0
         )
     """)
+    for col, typedef in [
+        ("recaps_disabled", "INTEGER DEFAULT 0"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE recap_settings ADD COLUMN {col} {typedef}")
+        except sqlite3.OperationalError:
+            pass
     # Bot Settings
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS bot_settings (
@@ -125,6 +133,15 @@ def is_user_restricted(user_id: str) -> bool:
     result = cursor.fetchone()
     conn.close()
     return result is not None
+
+
+def is_recaps_disabled() -> bool:
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM bot_settings WHERE key = 'recaps_disabled'")
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None and str(result[0]) == "1"
 
 
 def add_user_to_restrictlist(user_id: str, reason: str = ""):
@@ -1817,7 +1834,7 @@ def configure_recaps(ack, body, client):
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT recap_time, send_hackatime_stats FROM recap_settings WHERE user_id = ?",
+        "SELECT recap_time, send_hackatime_stats, recaps_disabled FROM recap_settings WHERE user_id = ?",
         (user_id,),
     )
     result = cursor.fetchone()
@@ -1825,6 +1842,7 @@ def configure_recaps(ack, body, client):
 
     initial_time = result[0] if result is not None else "21:00"
     send_hackatime_stats = result[1] if result is not None else 1
+    recaps_disabled = result[2] if result is not None else 0
     initial_hackatime_option = {
         "text": {
             "type": "plain_text",
@@ -1844,8 +1862,16 @@ def configure_recaps(ack, body, client):
                 "text": ":clock4: Recap Settings",
                 "emoji": True,
             },
-            "submit": {"type": "plain_text", "text": "Submit", "emoji": True},
-            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+            "submit": {
+                "type": "plain_text",
+                "text": "Submit",
+                "emoji": True,
+            },
+            "close": {
+                "type": "plain_text",
+                "text": "Cancel",
+                "emoji": True,
+            },
             "blocks": [
                 {
                     "type": "section",
@@ -1855,6 +1881,7 @@ def configure_recaps(ack, body, client):
                         "emoji": True,
                     },
                 },
+                {"type": "divider"},
                 {
                     "type": "input",
                     "block_id": "timepicker_block",
@@ -1885,6 +1912,7 @@ def configure_recaps(ack, body, client):
                         }
                     ],
                 },
+                {"type": "divider"},
                 {
                     "type": "input",
                     "block_id": "hackatime_block",
@@ -1923,6 +1951,26 @@ def configure_recaps(ack, body, client):
                     },
                     "optional": False,
                 },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Recaps Enabled"
+                                if int(recaps_disabled) == 0
+                                else "Recaps Disabled",
+                                "emoji": True,
+                            },
+                            "value": "click_me_123",
+                            "action_id": "toggle_recaps_action",
+                            "style": "primary"
+                            if int(recaps_disabled) == 0
+                            else "danger",
+                        }
+                    ],
+                },
             ],
         },
     )
@@ -1952,6 +2000,7 @@ def handle_recap_config_submission(ack, body, view, client):
         ON CONFLICT(user_id) DO UPDATE SET
                    recap_time=excluded.recap_time,
                    send_hackatime_stats=excluded.send_hackatime_stats
+
                """,
         (user_id, selected_time, send_hackatime_stats),
     )
@@ -1959,6 +2008,37 @@ def handle_recap_config_submission(ack, body, view, client):
     conn.close()
 
     client.chat_postMessage(channel=user_id, text="Sucessfully changed settings!")
+
+
+@app.action("toggle_recaps_action")
+def handle_toggle_recaps(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT recaps_disabled FROM recap_settings WHERE user_id = ?",
+        (user_id,),
+    )
+    result = cursor.fetchone()
+
+    new_state = 1 if result is None or int(result[0]) == 0 else 0
+
+    cursor.execute(
+        """
+        INSERT INTO recap_settings (user_id, recap_time, send_hackatime_stats, recaps_disabled)
+        VALUES (?, '21:00', 1, ?)
+        ON CONFLICT(user_id) DO UPDATE SET recaps_disabled = excluded.recaps_disabled
+        """,
+        (user_id, new_state),
+    )
+    conn.commit()
+    conn.close()
+
+    status_text = "enabled" if new_state == 0 else "disabled"
+    client.chat_postMessage(channel=user_id, text=f"Recaps have been {status_text}!")
 
 
 # App Home Logic! Part 2!
@@ -2152,6 +2232,9 @@ def handle_deny_button(ack, body, client, logger):
 
 def schedule_recap_msg(client):
 
+    if is_recaps_disabled():
+        return
+
     while True:
         try:
             tz = zoneinfo.ZoneInfo(BOT_TIMEZONE or "America/New_York")
@@ -2162,7 +2245,7 @@ def schedule_recap_msg(client):
             conn = sqlite3.connect("nudgebot.db")
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT user_id FROM recap_settings WHERE recap_time = ?",
+                "SELECT user_id FROM recap_settings WHERE recap_time = ? AND recaps_disabled != 1",
                 (current_time_str,),
             )
             rows = cursor.fetchall()
