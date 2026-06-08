@@ -24,9 +24,6 @@ PERSONAL_CHANNEL_ID = os.getenv("PERSONAL_CHANNEL_ID")
 PERSONAL_USERGROUP_ID = os.getenv("PERSONAL_USERGROUP_ID")
 BOT_TIMEZONE = os.getenv("BOT_TIMEZONE")
 
-# up time i think
-BOT_UPTIME = time.time()
-
 
 # DB Stuff UwU
 def init_db():
@@ -227,7 +224,7 @@ def is_joining_paused() -> bool:
 def help_command(command, ack, client):
     ack()
 
-    client.chat_post_Ephemeral(
+    client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
         text="Nudgebot About",
@@ -239,7 +236,7 @@ def help_command(command, ack, client):
             {"type": "divider"},
             {
                 "type": "markdown",
-                "text": f"Bot Info!\n Configured Channel: <@{PERSONAL_CHANNEL_ID}>\n Bot Owner: <@{CMAN_USER_ID}> \n  Uptime: {BOT_UPTIME} \n Command Prefix: {SLASH_PREFIX}",
+                "text": f"Bot Info!\n Configured Channel: <#{PERSONAL_CHANNEL_ID}>\n Bot Owner: <@{CMAN_USER_ID}> \n Command Prefix: {SLASH_PREFIX}",
             },
             {"type": "divider"},
             {
@@ -1216,12 +1213,6 @@ def schedule_purge_msg(client):
                 except Exception:
                     pass
         time.sleep(30)
-
-
-@app.command(f"/{SLASH_PREFIX}-are-you-alive")
-def bot_health_check(ack, respond, command):
-    ack()
-    respond("yes i am alive thank you for asking")
 
 
 @app.command(f"/{SLASH_PREFIX}-clean-up-group-list")
