@@ -24,22 +24,8 @@ PERSONAL_CHANNEL_ID = os.getenv("PERSONAL_CHANNEL_ID")
 PERSONAL_USERGROUP_ID = os.getenv("PERSONAL_USERGROUP_ID")
 BOT_TIMEZONE = os.getenv("BOT_TIMEZONE")
 
-app = App(token=SLACK_BOT_TOKEN)
-
-# Sentry so good bruh
-if SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        enable_logs=True,
-    )
-
-
-@app.error
-def global_error_handler(error, body, logger):
-    logger.exception(f"Unhandled error: {error}")
-    logger.info(f"Request body: {body}")
-    if SENTRY_DSN:
-        sentry_sdk.capture_exception(error)
+# up time i think
+BOT_UPTIME = time.time()
 
 
 # DB Stuff UwU
@@ -116,6 +102,23 @@ def init_db():
 SLASH_PREFIX = init_db()
 
 print(f"Hi! My Nudgebot prefix is {SLASH_PREFIX}!")
+
+app = App(token=SLACK_BOT_TOKEN)
+
+# Sentry so good bruh
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        enable_logs=True,
+    )
+
+
+@app.error
+def global_error_handler(error, body, logger):
+    logger.exception(f"Unhandled error: {error}")
+    logger.info(f"Request body: {body}")
+    if SENTRY_DSN:
+        sentry_sdk.capture_exception(error)
 
 
 def is_user_restricted(user_id: str) -> bool:
@@ -218,6 +221,38 @@ def is_joining_paused() -> bool:
     result = cursor.fetchone()
     conn.close()
     return result is not None and str(result[0]) == "1"
+
+
+@app.command(f"/{SLASH_PREFIX}-about")
+def help_command(command, ack, client):
+    ack()
+
+    client.chat_post_Ephemeral(
+        channel=command["channel_id"],
+        user=command["user_id"],
+        text="Nudgebot About",
+        blocks=[
+            {
+                "type": "markdown",
+                "text": "Hey, I am Nudgebot! A Slack bot configured for managing personal channels! :yay-wave:",
+            },
+            {"type": "divider"},
+            {
+                "type": "markdown",
+                "text": f"Bot Info!\n Configured Channel: <@{PERSONAL_CHANNEL_ID}>\n Bot Owner: <@{CMAN_USER_ID}> \n  Uptime: {BOT_UPTIME} \n Command Prefix: {SLASH_PREFIX}",
+            },
+            {"type": "divider"},
+            {
+                "type": "markdown",
+                "text": f"Commands:\n /{SLASH_PREFIX}-advertise-channel - Share your channel to #neighbourhood!\n /{SLASH_PREFIX}-list-restricted-users - List of restricted users for your channel.\n/{SLASH_PREFIX}-restrict-from-channel @user - Restrict a user from joining your channel.\n/{SLASH_PREFIX}-unrestrict-from-channel @user - Unrestrict a user from joining your channel.\n /{SLASH_PREFIX}-channel-purge - Kick out inactive people from your channel\n /{SLASH_PREFIX}-clean-up-group-list -Remove usergroup members who are no longer in the channel.\n /join-channel-{SLASH_PREFIX} - Request to join your personal channel!",
+            },
+            {"type": "divider"},
+            {
+                "type": "markdown",
+                "text": "Credits!\n Nudgebot is developed by <@U09PHG7RLGG>! Check out the Nudgebot [repo](https://github.com/Snowflake6413/nudgebot)!",
+            },
+        ],
+    )
 
 
 # RECAP.
