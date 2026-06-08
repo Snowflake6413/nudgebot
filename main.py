@@ -1,4 +1,5 @@
 import os
+import random
 import sqlite3
 import threading
 import time
@@ -100,11 +101,21 @@ def init_db():
         PRIMARY KEY (session_id, user_id)
         )
     """)
+    # Slash command prefix init because Stinky slack likes to take over commands if the name is same
+    cursor.execute(
+        "INSERT OR IGNORE INTO bot_settings (key, value) VALUES (? , ?)",
+        ("slash_prefix", str(random.randint(1000, 9999))),
+    )
     conn.commit()
+    cursor.execute("SELECT value from bot_settings WHERE key = ?", ("slash_prefix",))
+    prefix = cursor.fetchone()[0]
     conn.close()
+    return prefix
 
 
-init_db()
+SLASH_PREFIX = init_db()
+
+print(f"Hi! My Nudgebot prefix is {SLASH_PREFIX}!")
 
 
 def is_user_restricted(user_id: str) -> bool:
@@ -543,7 +554,7 @@ def handle_message(message, client, logger):
 
 
 # advertise STUFF uwu
-@app.command("/advertise-channel")
+@app.command(f"/{SLASH_PREFIX}-advertise-channel")
 def advertise_channel(command, client, ack, respond, logger):
     ack()
 
@@ -787,7 +798,7 @@ def greet_new_user(ack, say, body):
     say(text=f"<@{user_id}> says hello :drgn_wave:", thread_ts=thread_ts)
 
 
-@app.command("/list-restricted-users")
+@app.command(f"/{SLASH_PREFIX}-list-restricted-users")
 def list_restricted_users_command(ack, respond, command):
     ack()
 
@@ -812,7 +823,7 @@ def list_restricted_users_command(ack, respond, command):
     respond(msg)
 
 
-@app.command("/restrict-from-channel")
+@app.command(f"/{SLASH_PREFIX}-restrict-from-channel")
 def restrict_user_command(ack, respond, say, command, client):
     ack()
 
@@ -833,7 +844,7 @@ def restrict_user_command(ack, respond, say, command, client):
     respond(f"Successfully restricted <@{user_id}>!")
 
 
-@app.command("/unrestrict-from-channel")
+@app.command(f"/{SLASH_PREFIX}-unrestrict-from-channel")
 def unrestrict_user_command(ack, respond, say, command, client):
     ack()
 
@@ -854,7 +865,7 @@ def unrestrict_user_command(ack, respond, say, command, client):
     respond(f"Sucessfully unrestricted <@{user_id}>!")
 
 
-@app.command("/channel-purge")
+@app.command(f"/{SLASH_PREFIX}-channel-purge")
 def channel_purge_command(ack, body, client, respond):
     ack()
 
@@ -1172,13 +1183,13 @@ def schedule_purge_msg(client):
         time.sleep(30)
 
 
-@app.command("/are-you-alive")
+@app.command(f"/{SLASH_PREFIX}-are-you-alive")
 def bot_health_check(ack, respond, command):
     ack()
     respond("yes i am alive thank you for asking")
 
 
-@app.command("/clean-up-group-list")
+@app.command(f"/{SLASH_PREFIX}-clean-up-group-list")
 def usergroup_cleaner(ack, respond, command, client):
     ack()
 
@@ -1221,7 +1232,7 @@ def usergroup_cleaner(ack, respond, command, client):
 
 # Join via Slash command
 # free feel to change this command to anything!
-@app.command("/join-a-nice-channel")
+@app.command(f"/join-channel-{SLASH_PREFIX}")
 def joining_guardian(ack, respond, say, command, client, body):
     ack()
 
