@@ -1813,13 +1813,14 @@ def configure_invitations(ack, client, body):
                                 "value": "0",
                             },
                         ],
-                        "action_id": "static_select-action",
+                        "action_id": "requests_select",
                     },
                     "label": {
                         "type": "plain_text",
                         "text": "Toggle Joining requests",
                         "emoji": True,
                     },
+                    "block_id": "requests_value",
                     "optional": False,
                 },
                 {
