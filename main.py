@@ -2197,9 +2197,8 @@ def handle_join_button_app_home(ack, respond, say, body, client):
         {
             "type": "section",
             "text": {
-                "type": "plain_text",
+                "type": "mrkdwn",
                 "text": f"New request to <@{CMAN_USER_ID}>'s channel :tm:",
-                "emoji": True,
             },
         },
         {
