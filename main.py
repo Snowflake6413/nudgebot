@@ -1299,6 +1299,10 @@ def joining_guardian(ack, respond, say, command, client, body):
         respond(
             f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>."
         )
+        client.chat_postMessage(
+            channel=CMAN_USER_ID,
+            text=f"<@{invoker_user_id}> tried to join your channel but you restricted them from joining your channel!",
+        )
         return
 
     if invoker_user_id in members:
@@ -1321,6 +1325,11 @@ def joining_guardian(ack, respond, say, command, client, body):
         if idv_result not in ("verified_eligible", "verified_but_over_18"):
             respond(
                 f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! :neocat_sad: complete your verifcation and try again later!",
+            )
+
+            client.chat_postMessage(
+                channel=CMAN_USER_ID,
+                text=f"<@{invoker_user_id}> tried to join your channel but they werent IDV verified!",
             )
             return
 
@@ -2154,6 +2163,13 @@ def handle_join_button_app_home(ack, respond, say, body, client):
         )
         return
 
+    if is_user_restricted(user_id):
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>.",
+        )
+        return
+
     if is_joining_paused():
         client.chat_postMessage(
             channel=user_id,
@@ -2171,6 +2187,11 @@ def handle_join_button_app_home(ack, respond, say, body, client):
             client.chat_postMessage(
                 channel=user_id,
                 text=f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! :neocat_sad: complete your verifcation and try again later!",
+            )
+
+            client.chat_postMessage(
+                channel=CMAN_USER_ID,
+                text=f"<@{user_id}> tried to join your channel but they werent IDV verified!",
             )
             return
 
@@ -2262,7 +2283,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
 
     client.chat_postMessage(
         channel=CMAN_USER_ID,
-        text="New PC Request",
+        text="New Join Request",
         blocks=blocks,
     )
 
