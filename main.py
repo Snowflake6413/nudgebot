@@ -178,10 +178,10 @@ def is_idv_required() -> bool:
 def is_requests_off() -> bool:
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT value FROM bot_settings WHERE key = 'require_idv'")
+    cursor.execute("SELECT value FROM bot_settings WHERE key = 'is_requests_off'")
     result = cursor.fetchone()
     conn.close()
-    return result is not None and str(result[0]) == "1"
+    return result is not None and str(result[0]) == "0"
 
 
 def auto_thread_toggle() -> bool:
@@ -1318,7 +1318,7 @@ def joining_guardian(ack, respond, say, command, client, body):
         )
         idv_data = response.json()
         idv_result = idv_data.get("result")
-        if idv_result != "verified_eligible" or "verified_but_over_18":
+        if idv_result not in ("verified_eligible", "verified_but_over_18"):
             respond(
                 f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! :neocat_sad: complete your verifcation and try again later!",
             )
@@ -1326,6 +1326,11 @@ def joining_guardian(ack, respond, say, command, client, body):
 
     if is_requests_off():
         client.conversations_invite(channel=PERSONAL_CHANNEL_ID, users=invoker_user_id)
+
+        client.chat_postMessage(
+            channel=invoker_user_id,
+            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! :yay:",
+        )
         return
 
     client.chat_postMessage(
@@ -2142,12 +2147,21 @@ def handle_join_button_app_home(ack, respond, say, body, client):
         )
         idv_data = response.json()
         idv_result = idv_data.get("result")
-        if idv_result != "verified_eligible" or "verified_but_over_18":
+        if idv_result not in ("verified_eligible", "verified_but_over_18"):
             client.chat_postMessage(
                 channel=user_id,
                 text=f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! :neocat_sad: complete your verifcation and try again later!",
             )
             return
+
+    if is_requests_off():
+        client.conversations_invite(channel=PERSONAL_CHANNEL_ID, users=user_id)
+
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! :yay:",
+        )
+        return
 
     client.chat_postMessage(
         channel=user_id,
