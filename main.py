@@ -717,34 +717,37 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
         client.conversations_kick(channel=channel, users=new_user)
         return
 
-    if new_user == bot_user_id and channel != PERSONAL_CHANNEL_ID:
-        leave_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"hi! it seems like you invited me to a channel i am not supposed to be in! this bot is configure for <@{CMAN_USER_ID}>'s channel! :neocat_sad:",
+    if new_user == bot_user_id:
+        if channel != PERSONAL_CHANNEL_ID:
+            leave_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"hi! it seems like you invited me to a channel i am not supposed to be in! this bot is configure for <@{CMAN_USER_ID}>'s channel! :neocat_sad:",
+                    },
                 },
-            },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "if you are looking to deploy a nudgebot for your channel, please see this <https://github.com/Snowflake6413/nudgebot|github repo!> you can deploy your nudgebot on <https://dashboard.hackclub.app|Nest> since it's free!",
+                {"type": "divider"},
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "if you are looking to deploy a nudgebot for your channel, please see this <https://github.com/Snowflake6413/nudgebot|github repo!> you can deploy your nudgebot on <https://dashboard.hackclub.app|Nest> since it's free!",
+                    },
                 },
-            },
-            {
-                "type": "context",
-                "elements": [
-                    {"type": "mrkdwn", "text": "any issues? dm <@U09PHG7RLGG>!"}
-                ],
-            },
-        ]
-
-        say(blocks=leave_blocks)
-        client.conversations_leave(channel=channel)
-        return
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "leaving this channel automatically now.",
+                        }
+                    ],
+                },
+            ]
+            client.chat_postMessage(channel=channel, blocks=leave_blocks)
+            client.conversations_leave(channel=channel)
+            return
 
     if channel == PERSONAL_CHANNEL_ID:
         client.chat_postMessage(
