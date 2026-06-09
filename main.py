@@ -1795,23 +1795,31 @@ def handle_join_settings_submission(ack, body, client):
     ack()
     values = body["view"]["state"]["values"]
 
-    pause_value = values["pause_joining_input"]["pause_select"]["selected_option"][
-        "value"
-    ]
-    idv_value = values["idv_required_input"]["idv_select"]["selected_option"]["value"]
+    def selected_value(block_id, action_id):
+        selected = (
+            values.get(block_id, {})
+            .get(action_id, {})
+            .get("selected_option")
+        )
+        return selected.get("value") if selected else None
+
+    pause_value = selected_value("pause_joining_input", "pause_select")
+    idv_value = selected_value("idv_required_input", "idv_select")
 
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO bot_settings (key, value) VALUES ('is_paused', ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = ?",
-        (pause_value, pause_value),
-    )
-    cursor.execute(
-        "INSERT INTO bot_settings (key, value) VALUES ('require_idv', ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = ?",
-        (idv_value, idv_value),
-    )
+    if pause_value is not None:
+        cursor.execute(
+            "INSERT INTO bot_settings (key, value) VALUES ('is_paused', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = ?",
+            (pause_value, pause_value),
+        )
+    if idv_value is not None:
+        cursor.execute(
+            "INSERT INTO bot_settings (key, value) VALUES ('require_idv', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = ?",
+            (idv_value, idv_value),
+        )
     conn.commit()
     conn.close()
 
