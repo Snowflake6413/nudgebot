@@ -1658,7 +1658,6 @@ def configure_invitations(ack, client, body):
     ack()
     is_paused = is_joining_paused()
     idv_required = is_idv_required()
-    requests_off = is_requests_off()
 
     client.views_open(
         trigger_id=body["trigger_id"],
@@ -1804,9 +1803,8 @@ def configure_invitations(ack, client, body):
                                     "emoji": True,
                                 },
                                 "value": "1",
-                            }
-                            if requests_off
-                            else {
+                            },
+                            {
                                 "text": {
                                     "type": "plain_text",
                                     "text": "Off",
