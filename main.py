@@ -175,6 +175,15 @@ def is_idv_required() -> bool:
     return result is not None and str(result[0]) == "1"
 
 
+def is_requests_off() -> bool:
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM bot_settings WHERE key = 'require_idv'")
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None and str(result[0]) == "1"
+
+
 def auto_thread_toggle() -> bool:
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
@@ -1315,6 +1324,10 @@ def joining_guardian(ack, respond, say, command, client, body):
             )
             return
 
+    if is_requests_off():
+        client.conversations_invite(channel=PERSONAL_CHANNEL_ID, users=invoker_user_id)
+        return
+
     client.chat_postMessage(
         channel=invoker_user_id,
         text=f":<@{invoker_user_id}>. you requested access to join <@{CMAN_USER_ID}>'s channel! :yay: You should wait for a while for the channel owner to review your request to be invited!",
@@ -1645,27 +1658,16 @@ def configure_invitations(ack, client, body):
     ack()
     is_paused = is_joining_paused()
     idv_required = is_idv_required()
+    requests_off = is_requests_off()
 
     client.views_open(
         trigger_id=body["trigger_id"],
         view={
             "type": "modal",
             "callback_id": "invitation_settings_action",
-            "title": {
-                "type": "plain_text",
-                "text": "Join Settings",
-                "emoji": True,
-            },
-            "submit": {
-                "type": "plain_text",
-                "text": "Save",
-                "emoji": True,
-            },
-            "close": {
-                "type": "plain_text",
-                "text": "Cancel",
-                "emoji": True,
-            },
+            "title": {"type": "plain_text", "text": "Join Settings", "emoji": True},
+            "submit": {"type": "plain_text", "text": "Save", "emoji": True},
+            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
             "blocks": [
                 {
                     "type": "section",
@@ -1785,6 +1787,52 @@ def configure_invitations(ack, client, body):
                         "emoji": True,
                     },
                 },
+                {
+                    "type": "input",
+                    "element": {
+                        "type": "static_select",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select an item",
+                            "emoji": True,
+                        },
+                        "options": [
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "On",
+                                    "emoji": True,
+                                },
+                                "value": "1",
+                            }
+                            if requests_off
+                            else {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Off",
+                                    "emoji": True,
+                                },
+                                "value": "0",
+                            },
+                        ],
+                        "action_id": "static_select-action",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Toggle Joining requests",
+                        "emoji": True,
+                    },
+                    "optional": False,
+                },
+                {
+                    "type": "alert",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "If you turn off joining requests, everybody that request access to your channel will automatically be added without approval!",
+                        "verbatim": False,
+                    },
+                    "level": "warning",
+                },
             ],
         },
     )
@@ -1800,6 +1848,10 @@ def handle_join_settings_submission(ack, body, client):
     ]
     idv_value = values["idv_required_input"]["idv_select"]["selected_option"]["value"]
 
+    requests_value = values["requests_value"]["requests_select"]["selected_option"][
+        "value"
+    ]
+
     conn = sqlite3.connect("nudgebot.db")
     cursor = conn.cursor()
     cursor.execute(
@@ -1811,6 +1863,11 @@ def handle_join_settings_submission(ack, body, client):
         "INSERT INTO bot_settings (key, value) VALUES ('require_idv', ?) "
         "ON CONFLICT(key) DO UPDATE SET value = ?",
         (idv_value, idv_value),
+    )
+    cursor.execute(
+        "INSERT INTO bot_settings (key, value) VALUES ('is_requests_off', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = ?",
+        (requests_value, requests_value),
     )
     conn.commit()
     conn.close()
