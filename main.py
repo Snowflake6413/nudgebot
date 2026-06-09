@@ -1651,9 +1651,21 @@ def configure_invitations(ack, client, body):
         view={
             "type": "modal",
             "callback_id": "invitation_settings_action",
-            "title": {"type": "plain_text", "text": "Join Settings", "emoji": True},
-            "submit": {"type": "plain_text", "text": "Save", "emoji": True},
-            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+            "title": {
+                "type": "plain_text",
+                "text": "Join Settings",
+                "emoji": True,
+            },
+            "submit": {
+                "type": "plain_text",
+                "text": "Save",
+                "emoji": True,
+            },
+            "close": {
+                "type": "plain_text",
+                "text": "Cancel",
+                "emoji": True,
+            },
             "blocks": [
                 {
                     "type": "section",
