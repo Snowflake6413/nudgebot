@@ -749,7 +749,7 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
             client.conversations_leave(channel=channel)
             return
 
-    if channel == PERSONAL_CHANNEL_ID:
+    if channel == PERSONAL_CHANNEL_ID and new_user != bot_user_id:
         client.chat_postMessage(
             channel=CMAN_USER_ID,
             text=f"<@{new_user}> joined your channel! :yay-67:",
@@ -1277,7 +1277,6 @@ def usergroup_cleaner(ack, respond, command, client):
 
 
 # Join via Slash command
-# free feel to change this command to anything!
 @app.command(f"/join-channel-{SLASH_PREFIX}")
 def joining_guardian(ack, respond, say, command, client, body):
     ack()
@@ -1318,7 +1317,7 @@ def joining_guardian(ack, respond, say, command, client, body):
 
     client.chat_postMessage(
         channel=invoker_user_id,
-        text=f":mhm:, <@{invoker_user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
+        text=f":<@{invoker_user_id}>. you requested access to join <@{CMAN_USER_ID}>'s channel! :yay: You should wait for a while for the channel owner to review your request to be invited!",
     )
 
     response = requests.get(
@@ -2084,7 +2083,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
 
     client.chat_postMessage(
         channel=user_id,
-        text=f":mhm:, <@{user_id}>. you requested access to join the padded room. The manager of the padded room shall review your request in the next working hour :nodnod:",
+        text=f":<@{user_id}>. you requested access to join <@{CMAN_USER_ID}>'s channel! :yay: You should wait for a while for the channel owner to review your request to be invited!",
     )
 
     response = requests.get(
