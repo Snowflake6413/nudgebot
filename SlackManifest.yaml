@@ -1,6 +1,6 @@
 display_information:
-  name: Nudgebot
-  description: A Slack bot that can manage your personal channels easily and simple.
+  name: nudgebot (CHANGE ME!)
+  description: Nudgebot instance (CHANGE ME!)
   background_color: "#3e59ab"
 features:
   app_home:
@@ -10,53 +10,63 @@ features:
   bot_user:
     display_name: nudgebot
     always_online: true
+  shortcuts:
+    - name: Delete Bot Message
+      type: message
+      callback_id: delete_bot_msg_shortcut
+      description: Delete a message that your nudgebot sent
   slash_commands:
-    - command: /{SLASH_PREFIX}-restrict-from-channel
+    - command: /<replacewithprefix>-restrict-from-channel
       description: Restrict a user from joining your channel.
       usage_hint: "@user"
       should_escape: true
-    - command: /are-you-alive
-      description: Check if the bot is alive or not.
-      should_escape: false
-    - command: /unrestrict-from-channel
+    - command: /<replacewithprefix>-unrestrict-from-channel
       description: Unrestrict a user from joining your channel.
       usage_hint: "@user"
       should_escape: true
-    - command: /list-restricted-users
+    - command: /<replacewithprefix>-list-restricted-users
       description: List of restrictes users for your channel.
       should_escape: false
-    - command: /advertise-channel
+    - command: /<replacewithprefix>-advertise-channel
       description: Advertise your channel to the globe!
       should_escape: false
-    - command: /channel-purge
+    - command: /<replacewithprefix>-channel-purge
       description: Kick out inactive people from your channel
       should_escape: false
-    - command: /join-a-nice-channel
-      description: Placeholder
+    - command: /join-channel-<replacewithprefix>
+      description: Join a channel!
+      should_escape: false
+    - command: /<replacewithprefix>-about
+      description: About Nudgebot!
+      should_escape: false
+    - command: /<replacewithprefix>-say
+      description: Speak through your Nudgebot!
+      usage_hint: <text>
       should_escape: false
 oauth_config:
   scopes:
     user:
       - usergroups:read
     bot:
-      - im:write
+      - chat:write.public
       - channels:history
+      - channels:manage
       - channels:read
       - channels:write.invites
       - chat:write
       - commands
       - groups:history
       - groups:read
+      - groups:write
       - groups:write.invites
       - im:history
       - im:read
+      - im:write
       - mpim:history
       - mpim:read
+      - mpim:write
       - usergroups:read
       - usergroups:write
-      - mpim:write
-      - groups:write
-      - channels:manage
   pkce_enabled: false
 settings:
   event_subscriptions:
