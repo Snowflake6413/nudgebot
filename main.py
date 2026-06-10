@@ -23,6 +23,7 @@ CMAN_USER_ID = os.getenv("CMAN_USER_ID")
 PERSONAL_CHANNEL_ID = os.getenv("PERSONAL_CHANNEL_ID")
 PERSONAL_USERGROUP_ID = os.getenv("PERSONAL_USERGROUP_ID")
 BOT_TIMEZONE = os.getenv("BOT_TIMEZONE")
+ADVERT_CHANNEL = os.getenv("ADVERT_CHANNEL")
 
 
 # DB Stuff UwU
@@ -271,7 +272,7 @@ def help_command(command, ack, client):
             {"type": "divider"},
             {
                 "type": "markdown",
-                "text": f"Commands:\n /{SLASH_PREFIX}-advertise-channel - Share your channel to #neighbourhood!\n /{SLASH_PREFIX}-list-restricted-users - List of restricted users for your channel.\n/{SLASH_PREFIX}-restrict-from-channel @user - Restrict a user from joining your channel.\n/{SLASH_PREFIX}-unrestrict-from-channel @user - Unrestrict a user from joining your channel.\n /{SLASH_PREFIX}-channel-purge - Kick out inactive people from your channel\n /{SLASH_PREFIX}-clean-up-group-list -Remove usergroup members who are no longer in the channel.\n /join-channel-{SLASH_PREFIX} - Request to join your personal channel!",
+                "text": f"Commands:\n /{SLASH_PREFIX}-advertise-channel - Share your channel to #neighbourhood!\n /{SLASH_PREFIX}-list-restricted-users - List of restricted users for your channel.\n/{SLASH_PREFIX}-restrict-from-channel @user - Restrict a user from joining your channel.\n/{SLASH_PREFIX}-unrestrict-from-channel @user - Unrestrict a user from joining your channel.\n /{SLASH_PREFIX}-channel-purge - Kick out inactive people from your channel\n /{SLASH_PREFIX}-clean-up-group-list -Remove usergroup members who are no longer in the channel.\n /join-channel-{SLASH_PREFIX} - Request to join {channel_name}! \n /{SLASH_PREFIX}-say <text> say something as your nudgebot!",
             },
             {"type": "divider"},
             {
@@ -736,9 +737,32 @@ def handle_advertise_channel_submission(ack, body, view, client):
     ]
 
     client.chat_postMessage(
-        channel=PERSONAL_CHANNEL_ID,  # Soon.
+        channel=ADVERT_CHANNEL,  # Soon.
         blocks=blocks,
     )
+
+
+# :troll:
+@app.command(f"/{SLASH_PREFIX}-say")
+def speak_command(ack, respond, command, client):
+    ack()
+
+    invoker_user_id = command["user_id"]
+    if invoker_user_id != CMAN_USER_ID:
+        respond("you can't run this command!")
+        return
+
+    message_to_say = command.get("text", "").strip()
+
+    if not message_to_say:
+        respond(f"Usage: /{SLASH_PREFIX}-say <your message here>")
+        return
+
+    try:
+        client.chat_postMessage(channel=PERSONAL_CHANNEL_ID, text=message_to_say)
+
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
 
 
 # when a member joins a channel
