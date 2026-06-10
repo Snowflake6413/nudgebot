@@ -638,8 +638,8 @@ def handle_message(message, client, logger):
             client.chat_postMessage(channel=channel_id, text=":thread:")
 
 
-@app.shortcut("delete_ad_shortcut")
-def delete_my_ad_shortcut(ack, shortcut, body, client):
+@app.shortcut("delete_bot_msg_shortcut")
+def delete_bot_msg_shortcut(ack, shortcut, body, client):
     ack()
 
     # capture user id
@@ -647,9 +647,11 @@ def delete_my_ad_shortcut(ack, shortcut, body, client):
 
     if user_id != CMAN_USER_ID:
         client.chat_postEphemeral(
+            channel=shortcut["channel"]["id"],
             user=user_id,
-            text=f"hey, <@{user_id}>! you can't delete this ad because you aren't the channel manager of that channel!",
+            text=f"hey, <@{user_id}>! you can't delete this bot message because you aren't the channel manager of that channel!",
         )
+        return
 
     channel_id = shortcut["channel"]["id"]
     message_ts = shortcut["message"]["ts"]
@@ -885,7 +887,7 @@ def handle_member_left_channel(body, client):
 
     try:
         if channel == PERSONAL_CHANNEL_ID:
-            group_info = client.usergroups_user_list(usergroup=PERSONAL_USERGROUP_ID)
+            group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
             current_users = group_info["users"]
 
             if left_user in current_users:
@@ -1326,7 +1328,7 @@ def usergroup_cleaner(ack, respond, command, client):
         return
 
     try:
-        group_info = client.usergroups_user_list(usergroup=PERSONAL_USERGROUP_ID)
+        group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
         usergroup_users = group_info.get("users", [])
 
         if not usergroup_users:
@@ -1378,7 +1380,9 @@ def joining_guardian(ack, respond, say, command, client, body):
         return
 
     if invoker_user_id in members:
-        respond(f"you are already in {PERSONAL_CHANNEL_ID}, you goober :neocat_blank:")
+        respond(
+            f"you are already in <#{PERSONAL_CHANNEL_ID}> ({channel_name}), you goober :neocat_blank:"
+        )
         return
 
     if is_joining_paused():
@@ -1410,8 +1414,18 @@ def joining_guardian(ack, respond, say, command, client, body):
 
         client.chat_postMessage(
             channel=invoker_user_id,
-            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :yay:",
+            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :yay: i've also added you to the user group that <@{CMAN_USER_ID}> configured!",
         )
+
+        group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
+        current_users = group_info.get("users", [])
+
+        if invoker_user_id not in current_users:
+            current_users.append(invoker_user_id)
+            client.usergroups_users_update(
+                usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
+            )
+
         return
 
     client.chat_postMessage(
@@ -2274,6 +2288,15 @@ def handle_join_button_app_home(ack, respond, say, body, client):
             channel=user_id,
             text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :yay:",
         )
+
+        group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
+        current_users = group_info.get("users", [])
+
+        if user_id not in current_users:
+            current_users.append(user_id)
+            client.usergroups_users_update(
+                usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
+            )
         return
 
     client.chat_postMessage(
@@ -2383,7 +2406,7 @@ def handle_accept_button(ack, body, client):
 
     client.conversations_invite(channel=PERSONAL_CHANNEL_ID, users=requestor_user_id)
 
-    group_info = client.usergroups_user_list(usergroup=PERSONAL_USERGROUP_ID)
+    group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
     current_users = group_info.get("users", [])
 
     if requestor_user_id not in current_users:
@@ -2504,13 +2527,13 @@ def handle_usergroup_watch(event, client):
     for user_id in event.get("added_users", []):
         client.chat_postMessage(
             channel=CMAN_USER_ID,
-            text=f"<@{user_id}> just joined the usergroup! (alexanders-kittens) :yay-67:",
+            text=f"<@{user_id}> just joined the usergroup! :yay-67:",
         )
 
     for user_id in event.get("removed_users", []):
         client.chat_postMessage(
             channel=CMAN_USER_ID,
-            text=f"<@{user_id}> just left the usergroup! (alexanders-kittens) :saga:",
+            text=f"<@{user_id}> just left the usergroup! :saga:",
         )
 
 
