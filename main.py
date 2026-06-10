@@ -283,6 +283,28 @@ def help_command(command, ack, client):
     )
 
 
+@app.action("ignore_recap_action")
+def handle_ignore_recap(ack, body, client):
+    ack()
+
+    user_id = body["user"]["id"]
+    channel_id = body["channel"]["id"]
+    message_ts = body["message"]["ts"]
+
+    if user_id != CMAN_USER_ID:
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text=f"<@{CMAN_USER_ID}> can only dismiss this recap reminder!",
+        )
+        return
+
+    try:
+        client.chat_delete(channel=channel_id, ts=message_ts)
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+
+
 # RECAP.
 @app.action("open_recap_modal")
 def handle_recap_button(ack, body, client, logger):
@@ -2269,7 +2291,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"New request to <@{CMAN_USER_ID}>'s channel :tm:",
+                "text": f"New request to join {channel_name} :tm:",
             },
         },
         {
@@ -2293,7 +2315,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
             "elements": [
                 {
                     "type": "plain_text",
-                    "text": "do you accept or deny? OwO",
+                    "text": "please select an option!",
                     "emoji": True,
                 }
             ],
@@ -2446,7 +2468,17 @@ def schedule_recap_msg(client):
                                 },
                                 "value": "answer_recap",
                                 "action_id": "open_recap_modal",
-                            }
+                            },
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "ignore",
+                                    "emoji": True,
+                                },
+                                "value": "ignore_recap",
+                                "action_id": "ignore_recap_action",
+                            },
                         ],
                     },
                 ]
