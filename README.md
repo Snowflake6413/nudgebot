@@ -38,7 +38,8 @@ You'll need these to run Nudgebot.
 * Python (...do i even have to say this? specifically 3.13 or higher)
 * A Slack bot created
   * You can created a Slack bot easily from a manifest file in this repo. 
-  * You'll need to run the script once to generate a prefix for your slash commands and then replace REPLACEWITHPREFIX with the actual prefix that the script generated.
+  * You'll need to run the script once to generate a prefix for your slash commands and then replace CHANGEME with the actual prefix in the Manifest file (json) that the script generated.
+  * Please change CHANGEME in the manifest before importing to Slack.
 * Sentry (Optional)
 
 ---
