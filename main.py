@@ -110,6 +110,10 @@ print(f"Hi! My Nudgebot prefix is {SLASH_PREFIX}!")
 
 app = App(token=SLACK_BOT_TOKEN)
 
+# fetch channel name
+channel_name = app.client.conversations_info(channel=PERSONAL_CHANNEL_ID)["channel"][
+    "name"
+]
 # Sentry so good bruh
 if SENTRY_DSN:
     sentry_sdk.init(
@@ -611,6 +615,28 @@ def handle_message(message, client, logger):
             client.chat_postMessage(channel=channel_id, text=":thread:")
 
 
+@app.shortcut("delete_ad_shortcut")
+def delete_my_ad_shortcut(ack, shortcut, body, client):
+    ack()
+
+    # capture user id
+    user_id = shortcut["user"]["id"]
+
+    if user_id != CMAN_USER_ID:
+        client.chat_postEphemeral(
+            user=user_id,
+            text=f"hey, <@{user_id}>! you can't delete this ad because you aren't the channel manager of that channel!",
+        )
+
+    channel_id = shortcut["channel"]["id"]
+    message_ts = shortcut["message"]["ts"]
+
+    try:
+        client.chat_delete(channel=channel_id, ts=message_ts)
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+
+
 # advertise STUFF uwu
 @app.command(f"/{SLASH_PREFIX}-advertise-channel")
 def advertise_channel(command, client, ack, respond, logger):
@@ -688,7 +714,7 @@ def handle_advertise_channel_submission(ack, body, view, client):
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"an ad to join <#{PERSONAL_CHANNEL_ID}> (owned by: <@{CMAN_USER_ID}>)",
+                    "text": f"an ad to join <#{PERSONAL_CHANNEL_ID}> ({channel_name}) (owned by: <@{CMAN_USER_ID}>)",
                 }
             ],
         },
@@ -1297,7 +1323,7 @@ def joining_guardian(ack, respond, say, command, client, body):
 
     if is_user_restricted(invoker_user_id):
         respond(
-            f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>."
+            f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}> ({channel_name}). :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>."
         )
         client.chat_postMessage(
             channel=CMAN_USER_ID,
@@ -1324,7 +1350,7 @@ def joining_guardian(ack, respond, say, command, client, body):
         idv_result = idv_data.get("result")
         if idv_result not in ("verified_eligible", "verified_but_over_18"):
             respond(
-                f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! :neocat_sad: complete your verifcation and try again later!",
+                f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :neocat_sad: complete your verifcation and try again later!",
             )
 
             client.chat_postMessage(
@@ -1338,7 +1364,7 @@ def joining_guardian(ack, respond, say, command, client, body):
 
         client.chat_postMessage(
             channel=invoker_user_id,
-            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! :yay:",
+            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :yay:",
         )
         return
 
@@ -1502,7 +1528,7 @@ def update_home_tab(client, event):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"you are already in <#{PERSONAL_CHANNEL_ID}>, you goober! :neocat_happy:",
+                    "text": f"you are already in <#{PERSONAL_CHANNEL_ID}> ({channel_name}), you goober! :neocat_happy:",
                 },
             },
         ]
@@ -1512,7 +1538,7 @@ def update_home_tab(client, event):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>.",
+                    "text": f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. ({channel_name}) :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>.",
                 },
             }
         ]
@@ -1522,7 +1548,7 @@ def update_home_tab(client, event):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"hey, it looks like you haven't joined <#{PERSONAL_CHANNEL_ID}>, you wanna join that channel? :neocat_wink_blep:",
+                    "text": f"hey, it looks like you haven't joined <#{PERSONAL_CHANNEL_ID}> ({channel_name}), you wanna join that channel? :neocat_wink_blep:",
                 },
             },
             {
@@ -1530,7 +1556,7 @@ def update_home_tab(client, event):
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"this nudgebot and the personal channel (<#{PERSONAL_CHANNEL_ID}>) above is owned by <@{CMAN_USER_ID}>!",
+                        "text": f"this nudgebot and the personal channel (<#{PERSONAL_CHANNEL_ID}>) ({channel_name}) above is owned by <@{CMAN_USER_ID}>!",
                     }
                 ],
             },
@@ -2159,14 +2185,14 @@ def handle_join_button_app_home(ack, respond, say, body, client):
     if user_id in members:
         client.chat_postMessage(
             channel=user_id,
-            text=f"you are already in <#{PERSONAL_CHANNEL_ID}>, you goober :neocat_blank:",
+            text=f"you are already in <#{PERSONAL_CHANNEL_ID}> ({channel_name}), you goober :neocat_blank:",
         )
         return
 
     if is_user_restricted(user_id):
         client.chat_postMessage(
             channel=user_id,
-            text=f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}>. :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>.",
+            text=f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}> ({channel_name}). :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>.",
         )
         return
 
@@ -2186,7 +2212,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
         if idv_result not in ("verified_eligible", "verified_but_over_18"):
             client.chat_postMessage(
                 channel=user_id,
-                text=f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! :neocat_sad: complete your verifcation and try again later!",
+                text=f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :neocat_sad: complete your verifcation and try again later!",
             )
 
             client.chat_postMessage(
@@ -2200,7 +2226,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
 
         client.chat_postMessage(
             channel=user_id,
-            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! :yay:",
+            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :yay:",
         )
         return
 
@@ -2338,7 +2364,7 @@ def handle_restrict_user_pc(ack, body, client):
 
     client.chat_postMessage(
         channel=CMAN_USER_ID,
-        text=f"Restricted <@{restricted_user_id}> sucessfully. They are not allowed to request to join <#{PERSONAL_CHANNEL_ID}>",
+        text=f"Restricted <@{restricted_user_id}> sucessfully. They are not allowed to request to join <#{PERSONAL_CHANNEL_ID}> ({channel_name})",
     )
 
 
