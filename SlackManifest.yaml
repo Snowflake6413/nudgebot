@@ -8,7 +8,7 @@ features:
     messages_tab_enabled: false
     messages_tab_read_only_enabled: false
   bot_user:
-    display_name: nudgebot
+    display_name: nudgebot (CHANGE ME!)
     always_online: true
   shortcuts:
     - name: Delete Bot Message
@@ -16,30 +16,30 @@ features:
       callback_id: delete_bot_msg_shortcut
       description: Delete a message that your nudgebot sent
   slash_commands:
-    - command: /<replacewithprefix>-restrict-from-channel
+    - command: /CHANGEME-restrict-from-channel
       description: Restrict a user from joining your channel.
       usage_hint: "@user"
       should_escape: true
-    - command: /<replacewithprefix>-unrestrict-from-channel
+    - command: /CHANGEME-unrestrict-from-channel
       description: Unrestrict a user from joining your channel.
       usage_hint: "@user"
       should_escape: true
-    - command: /<replacewithprefix>-list-restricted-users
+    - command: /CHANGEME-list-restricted-users
       description: List of restrictes users for your channel.
       should_escape: false
-    - command: /<replacewithprefix>-advertise-channel
+    - command: /CHANGEME-advertise-channel
       description: Advertise your channel to the globe!
       should_escape: false
-    - command: /<replacewithprefix>-channel-purge
+    - command: /CHANGEME-channel-purge
       description: Kick out inactive people from your channel
       should_escape: false
-    - command: /join-channel-<replacewithprefix>
+    - command: /join-channel-CHANGEME
       description: Join a channel!
       should_escape: false
-    - command: /<replacewithprefix>-about
+    - command: /CHANGEME-about
       description: About Nudgebot!
       should_escape: false
-    - command: /<replacewithprefix>-say
+    - command: /CHANGEME-say
       description: Speak through your Nudgebot!
       usage_hint: <text>
       should_escape: false
