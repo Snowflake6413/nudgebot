@@ -2473,7 +2473,7 @@ def schedule_recap_msg(client):
                                 "type": "button",
                                 "text": {
                                     "type": "plain_text",
-                                    "text": "ignore",
+                                    "text": "Dismiss reminder",
                                     "emoji": True,
                                 },
                                 "value": "ignore_recap",
