@@ -1353,7 +1353,7 @@ def usergroup_cleaner(ack, respond, command, client):
         respond(
             f"Cleaned up the usergroup!\n"
             f"Swept up {len(to_remove)} user(s).\n"
-            f"Kept {len(to_remove)} user(s) who are still in this channel."
+            f"Kept {len(updated_users)} user(s) who are still in this channel."
         )
     except Exception as e:
         sentry_sdk.capture_exception(e)
