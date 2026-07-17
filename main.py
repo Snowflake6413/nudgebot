@@ -25,6 +25,9 @@ PERSONAL_USERGROUP_ID = os.getenv("PERSONAL_USERGROUP_ID")
 BOT_TIMEZONE = os.getenv("BOT_TIMEZONE")
 ADVERT_CHANNEL = os.getenv("ADVERT_CHANNEL")
 
+# Only these users are allowed to trigger auto-threading with a ping.
+AUTO_THREAD_ALLOWED_USERS = {CMAN_USER_ID, "U08G06U8PS8"}
+
 
 # DB Stuff UwU
 def init_db():
@@ -633,7 +636,7 @@ def handle_message(message, client, logger):
         return
 
     # Auto thread handling
-    if contains_auto_thread_trigger(message):
+    if user_id in AUTO_THREAD_ALLOWED_USERS and contains_auto_thread_trigger(message):
         if auto_thread_toggle():
             client.chat_postMessage(channel=channel_id, text=":thread:")
 
