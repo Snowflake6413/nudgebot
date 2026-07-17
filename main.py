@@ -26,7 +26,7 @@ BOT_TIMEZONE = os.getenv("BOT_TIMEZONE")
 ADVERT_CHANNEL = os.getenv("ADVERT_CHANNEL")
 
 # Only these users are allowed to trigger auto-threading with a ping.
-AUTO_THREAD_ALLOWED_USERS = {"U09PHG7RLGG", "U08G06U8PS8"}
+AUTO_THREAD_ALLOWED_USERS = {CMAN_USER_ID, "U08G06U8PS8"}
 
 
 # DB Stuff UwU
