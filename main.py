@@ -11,6 +11,7 @@ import sentry_sdk
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_sdk.errors import SlackApiError
 
 load_dotenv()
 
@@ -649,11 +650,19 @@ def delete_bot_msg_shortcut(ack, shortcut, body, client):
     user_id = shortcut["user"]["id"]
 
     if user_id != CMAN_USER_ID:
-        client.chat_postEphemeral(
-            channel=shortcut["channel"]["id"],
-            user=user_id,
-            text=f"hey, <@{user_id}>! you can't delete this bot message because you aren't the channel manager of that channel!",
-        )
+        msg = f"hey, <@{user_id}>! you can't delete this bot message because you aren't the channel manager of that channel!"
+        try:
+            client.chat_postEphemeral(
+                channel=shortcut["channel"]["id"],
+                user=user_id,
+                text=msg,
+            )
+        except SlackApiError as e:
+            if e.response["error"] == "channel_not_found":
+                # Bot is not a member of the private channel; fall back to a DM
+                client.chat_postMessage(channel=user_id, text=msg)
+            else:
+                sentry_sdk.capture_exception(e)
         return
 
     channel_id = shortcut["channel"]["id"]
