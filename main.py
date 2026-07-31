@@ -636,7 +636,7 @@ def handle_message(message, client, logger):
                 conn.commit()
                 client.chat_postMessage(
                     channel=channel_id,
-                    text="you're safe. :white_check_mark:",
+                    text="ok you won't get kicked from the purge :)",
                 )
         except Exception as e:
             sentry_sdk.capture_exception(e)
