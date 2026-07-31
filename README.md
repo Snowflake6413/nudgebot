@@ -30,6 +30,8 @@ Nudgebot can do many thing to make your channel organized!
 
 ### Purge Feature
 * Think that your channel is cluttered with inactive people? You can use a slash command to schedule a purge. During the beginning of a channel purge, everybody in your channel to respond to a DM from Nudgebot, expecting them to respond. If they don't respond, they will get removed from the channel and usergroup by the deadline.
+* Other bots, deactivated accounts, and anyone Nudgebot couldn't actually deliver a DM to are left alone — they can't reply, so they never get kicked for not replying. You'll get a DM listing who wasn't warned.
+* This needs the `users:read` scope (it's in the manifest). If your bot was installed before this scope was added, reinstall it, otherwise Nudgebot can't tell people apart from bots and will skip everyone.
 
 ---
 ### Requirements
