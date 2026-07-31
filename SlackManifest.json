@@ -51,6 +51,11 @@
         "should_escape": false
       },
       {
+        "command": "/CHANGEME-cancel-purges",
+        "description": "Delete every scheduled or running purge session",
+        "should_escape": false
+      },
+      {
         "command": "/join-channel-CHANGEME",
         "description": "Join a channel!",
         "should_escape": false
