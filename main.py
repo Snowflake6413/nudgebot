@@ -1462,6 +1462,104 @@ def schedule_purge_msg(client):
         time.sleep(30)
 
 
+# adds someone to the usergroup and lets them know, with an escape hatch :3
+def add_user_to_usergroup(client, user_id: str) -> bool:
+    if not PERSONAL_USERGROUP_ID:
+        return False
+
+    try:
+        group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
+        current_users = group_info.get("users", [])
+
+        if user_id in current_users:
+            return False
+
+        current_users.append(user_id)
+        client.usergroups_users_update(
+            usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
+        )
+
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"i've also added you to the user group that <@{CMAN_USER_ID}> configured!",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"i've also added you to the user group that <@{CMAN_USER_ID}> configured, so you'll get pinged along with everyone else! :yay:",
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "take me out of the user group",
+                                "emoji": True,
+                            },
+                            "style": "danger",
+                            "action_id": "leave_usergroup_action",
+                            "value": user_id,
+                        }
+                    ],
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "you'll stay in the channel either way, this only stops the user group pings!",
+                        }
+                    ],
+                },
+            ],
+        )
+        return True
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+        return False
+
+
+# ok fine you can go :neocat_sad:
+@app.action("leave_usergroup_action")
+def handle_leave_usergroup(ack, body, client):
+    ack()
+
+    user_id = body["user"]["id"]
+
+    try:
+        group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
+        current_users = group_info.get("users", [])
+
+        if user_id not in current_users:
+            text = "looks like you're not in the user group anymore, so there's nothing for me to remove! :neocat_blank:"
+        elif len(current_users) == 1:
+            text = f"you're the only one in the user group right now, and slack won't let me empty it out completely! :neocat_sad: please DM <@{CMAN_USER_ID}> and they can sort it out."
+        else:
+            current_users.remove(user_id)
+            client.usergroups_users_update(
+                usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
+            )
+            text = "okay! i took you out of the user group, so it won't ping you anymore. you're still in the channel though! :neocat_3c:"
+
+        client.chat_update(
+            channel=body["channel"]["id"],
+            ts=body["message"]["ts"],
+            text=text,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": text},
+                }
+            ],
+        )
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+
+
 @app.command(f"/{SLASH_PREFIX}-clean-up-group-list")
 def usergroup_cleaner(ack, respond, command, client):
     ack()
@@ -1558,17 +1656,10 @@ def joining_guardian(ack, respond, say, command, client, body):
 
         client.chat_postMessage(
             channel=invoker_user_id,
-            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :yay: i've also added you to the user group that <@{CMAN_USER_ID}> configured!",
+            text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :yay:",
         )
 
-        group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
-        current_users = group_info.get("users", [])
-
-        if invoker_user_id not in current_users:
-            current_users.append(invoker_user_id)
-            client.usergroups_users_update(
-                usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
-            )
+        add_user_to_usergroup(client, invoker_user_id)
 
         return
 
@@ -2433,14 +2524,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
             text=f"you have been added to <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :yay:",
         )
 
-        group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
-        current_users = group_info.get("users", [])
-
-        if user_id not in current_users:
-            current_users.append(user_id)
-            client.usergroups_users_update(
-                usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
-            )
+        add_user_to_usergroup(client, user_id)
         return
 
     client.chat_postMessage(
@@ -2550,19 +2634,12 @@ def handle_accept_button(ack, body, client):
 
     client.conversations_invite(channel=PERSONAL_CHANNEL_ID, users=requestor_user_id)
 
-    group_info = client.usergroups_users_list(usergroup=PERSONAL_USERGROUP_ID)
-    current_users = group_info.get("users", [])
-
-    if requestor_user_id not in current_users:
-        current_users.append(requestor_user_id)
-        client.usergroups_users_update(
-            usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
-        )
-
     client.chat_postMessage(
         channel=requestor_user_id,
         text=f"Yaay! Your request to join <@{CMAN_USER_ID}>'s personal channel has been accepted! Now have fun in the channel! :yay:",
     )
+
+    add_user_to_usergroup(client, requestor_user_id)
 
 
 @app.action("restrict_user_action")
