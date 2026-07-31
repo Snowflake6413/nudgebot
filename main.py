@@ -94,9 +94,17 @@ def init_db():
         dm_channel_id TEXT,
         responded INTEGER DEFAULT 0,
         responded_at TIMESTAMP,
+        dm_failed INTEGER DEFAULT 0,
         PRIMARY KEY (session_id, user_id)
         )
     """)
+    for col, typedef in [
+        ("dm_failed", "INTEGER DEFAULT 0"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE purge_targets ADD COLUMN {col} {typedef}")
+        except sqlite3.OperationalError:
+            pass
     # Slash command prefix init because Stinky slack likes to take over commands if the name is same
     cursor.execute(
         "INSERT OR IGNORE INTO bot_settings (key, value) VALUES (? , ?)",
@@ -1152,6 +1160,41 @@ def handle_purge_schedule_submission(ack, body, view, client):
     )
 
 
+# Keeps a mention list from blowing past Slack's message length limit.
+def format_user_list(user_ids: list, max_shown: int = 20) -> str:
+    shown = " ".join(f"<@{user_id}>" for user_id in user_ids[:max_shown])
+    remaining = len(user_ids) - max_shown
+    if remaining > 0:
+        return f"{shown} (+{remaining} more)"
+    return shown
+
+
+# conversations_members only hands back one page at a time, so walk the cursor.
+# Without this, everyone past the first page is invisible to the purge.
+def fetch_channel_member_ids(client, channel_id: str) -> list:
+    member_ids = []
+    cursor = None
+
+    while True:
+        response = client.conversations_members(
+            channel=channel_id, limit=200, cursor=cursor
+        )
+        member_ids.extend(response["members"])
+        cursor = response.get("response_metadata", {}).get("next_cursor")
+        if not cursor:
+            return member_ids
+
+
+# Bots and deactivated accounts can't reply to a DM, so they'd be auto-kicked
+# for something they physically can't do. Needs the users:read scope.
+def is_kickable_human(client, user_id: str) -> bool:
+    if user_id == "USLACKBOT":
+        return False
+
+    user = client.users_info(user=user_id)["user"]
+    return not (user.get("is_bot") or user.get("deleted"))
+
+
 def schedule_purge_msg(client):
     tz = zoneinfo.ZoneInfo(BOT_TIMEZONE or "America/New_York")
     bot_user_id = client.auth_test()["user_id"]
@@ -1190,27 +1233,48 @@ def schedule_purge_msg(client):
 
                 # start the PURGE >:3
                 if started_raw is None and now >= start_at:
+                    # Build the target list before marking the session started, so a
+                    # failure here just retries next tick instead of burning the purge.
+                    members = fetch_channel_member_ids(client, channel_id)
+
+                    targets = []
+                    skipped_bots = 0
+                    lookup_errors = 0
+                    missing_users_scope = False
+
+                    for user_id in members:
+                        if user_id in (bot_user_id, CMAN_USER_ID):
+                            continue
+                        try:
+                            if is_kickable_human(client, user_id):
+                                targets.append(user_id)
+                            else:
+                                skipped_bots += 1
+                        except Exception as e:
+                            # Can't confirm they're human, so leave them out rather
+                            # than risk kicking someone we couldn't look up.
+                            lookup_errors += 1
+                            if (
+                                isinstance(e, SlackApiError)
+                                and e.response["error"] == "missing_scope"
+                            ):
+                                missing_users_scope = True
+                            sentry_sdk.capture_exception(e)
+
                     cursor.execute(
                         "UPDATE purge_sessions SET started_at = ? WHERE id = ?",
                         (now.isoformat(), session_id),
                     )
                     conn.commit()
 
-                    members_response = client.conversations_members(channel=channel_id)
-                    members = [
-                        user_id
-                        for user_id in members_response["members"]
-                        if user_id not in (bot_user_id, CMAN_USER_ID)
-                    ]
-
-                    dm_errors = 0
-                    for user_id in members:
+                    dm_failures = []
+                    for user_id in targets:
                         cursor.execute(
                             """
 
                             INSERT OR IGNORE into purge_targets
-                            (session_id, user_id, dm_channel_id, responded, responded_at)
-                            VALUES (?, ?, NULL, 0, NULL)
+                            (session_id, user_id, dm_channel_id, responded, responded_at, dm_failed)
+                            VALUES (?, ?, NULL, 0, NULL, 0)
                             """,
                             (session_id, user_id),
                         )
@@ -1236,22 +1300,48 @@ def schedule_purge_msg(client):
                                 ),
                             )
                         except Exception as e:
-                            dm_errors += 1
+                            # Never warned, so never kicked.
+                            dm_failures.append(user_id)
+                            cursor.execute(
+                                """
+                                UPDATE purge_targets
+                                SET dm_failed = 1
+                                WHERE session_id = ? AND user_id = ?
+                                """,
+                                (session_id, user_id),
+                            )
+                            conn.commit()
                             sentry_sdk.capture_exception(e)
 
-                    client.chat_postMessage(
-                        channel=created_by,
-                        text=(
-                            f"Purge started for <#{channel_id}>!\n"
-                            f"DM errors: {dm_errors}"
-                        ),
+                    report = (
+                        f"Purge started for <#{channel_id}>!\n"
+                        f"DM'd: {len(targets) - len(dm_failures)}\n"
+                        f"Bots/deactivated skipped: {skipped_bots}\n"
+                        f"DM errors: {len(dm_failures)} (these people are safe, they were never warned)"
                     )
+                    if dm_failures:
+                        report += f"\nNot warned: {format_user_list(dm_failures)}"
+                    if lookup_errors:
+                        report += (
+                            f"\nCouldn't look up {lookup_errors} member(s), so they were"
+                            f" left out of this purge."
+                        )
+                    if missing_users_scope:
+                        report += (
+                            "\n:warning: The bot is missing the `users:read` scope, so it"
+                            " can't tell people apart from bots. Add the scope in your app"
+                            " config and reinstall the app."
+                        )
+
+                    client.chat_postMessage(channel=created_by, text=report)
                 elif started_raw is not None and now >= deadline_at:
                     cursor.execute(
                         """
                         SELECT user_id
                         FROM purge_targets
-                        WHERE session_id = ? AND responded = 0
+                        WHERE session_id = ?
+                          AND responded = 0
+                          AND COALESCE(dm_failed, 0) = 0
                         """,
                         (session_id,),
                     )
@@ -1298,13 +1388,26 @@ def schedule_purge_msg(client):
                     )
                     safe_count = cursor.fetchone()[0]
 
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM purge_targets
+                        WHERE session_id = ?
+                          AND responded = 0
+                          AND COALESCE(dm_failed, 0) = 1
+                        """,
+                        (session_id,),
+                    )
+                    never_warned_count = cursor.fetchone()[0]
+
                     client.chat_postMessage(
                         channel=created_by,
                         text=(
                             f"Purge finished!\n"
                             f"# of people safe from purge: {safe_count}\n"
                             f"Kicked: {kicked}\n"
-                            f"Kick errors: {kick_errors}"
+                            f"Kick errors: {kick_errors}\n"
+                            f"Spared (never got a DM): {never_warned_count}"
                         ),
                     )
 

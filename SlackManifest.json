@@ -90,7 +90,8 @@
         "mpim:read",
         "mpim:write",
         "usergroups:read",
-        "usergroups:write"
+        "usergroups:write",
+        "users:read"
       ]
     },
     "pkce_enabled": false
