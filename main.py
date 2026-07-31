@@ -905,7 +905,7 @@ def handle_member_left_channel(body, client):
             if left_user in current_users:
                 current_users.remove(left_user)
 
-                client.usergroups_user_update(
+                client.usergroups_users_update(
                     usergroup=PERSONAL_USERGROUP_ID, users=",".join(current_users)
                 )
 
