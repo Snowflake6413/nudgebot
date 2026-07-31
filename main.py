@@ -284,7 +284,7 @@ def help_command(command, ack, client):
             {"type": "divider"},
             {
                 "type": "markdown",
-                "text": f"Commands:\n /{SLASH_PREFIX}-advertise-channel - Share your channel to #neighbourhood!\n /{SLASH_PREFIX}-list-restricted-users - List of restricted users for your channel.\n/{SLASH_PREFIX}-restrict-from-channel @user - Restrict a user from joining your channel.\n/{SLASH_PREFIX}-unrestrict-from-channel @user - Unrestrict a user from joining your channel.\n /{SLASH_PREFIX}-channel-purge - Kick out inactive people from your channel\n /{SLASH_PREFIX}-clean-up-group-list -Remove usergroup members who are no longer in the channel.\n /join-channel-{SLASH_PREFIX} - Request to join {channel_name}! \n /{SLASH_PREFIX}-say <text> say something as your nudgebot!",
+                "text": f"Commands:\n /{SLASH_PREFIX}-advertise-channel - Share your channel to #neighbourhood!\n /{SLASH_PREFIX}-list-restricted-users - List of restricted users for your channel.\n/{SLASH_PREFIX}-restrict-from-channel @user - Restrict a user from joining your channel.\n/{SLASH_PREFIX}-unrestrict-from-channel @user - Unrestrict a user from joining your channel.\n /{SLASH_PREFIX}-channel-purge - Kick out inactive people from your channel\n /{SLASH_PREFIX}-cancel-purges - Delete every scheduled/running purge session.\n /{SLASH_PREFIX}-clean-up-group-list -Remove usergroup members who are no longer in the channel.\n /join-channel-{SLASH_PREFIX} - Request to join {channel_name}! \n /{SLASH_PREFIX}-say <text> say something as your nudgebot!",
             },
             {"type": "divider"},
             {
@@ -1157,6 +1157,35 @@ def handle_purge_schedule_submission(ack, body, view, client):
             f"Start: {start_at:%Y-%m-%d %H:%M}\n"
             f"End:  {end_at:%Y-%m-%d %H:%M}\n"
         ),
+    )
+
+
+@app.command(f"/{SLASH_PREFIX}-cancel-purges")
+def cancel_purges_command(ack, respond, command):
+    ack()
+
+    if command["user_id"] != CMAN_USER_ID:
+        respond("You are not authorized to run this command :nuhuhvro:")
+        return
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM purge_sessions")
+    session_ids = [row[0] for row in cursor.fetchall()]
+
+    if not session_ids:
+        conn.close()
+        respond("There are no purge sessions to delete.")
+        return
+
+    cursor.execute("DELETE FROM purge_targets")
+    cursor.execute("DELETE FROM purge_sessions")
+    conn.commit()
+    conn.close()
+
+    respond(
+        f"Deleted {len(session_ids)} purge session(s) and all their tracked targets. "
+        "No pending purges remain."
     )
 
 
