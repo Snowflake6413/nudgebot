@@ -817,7 +817,7 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
     bot_user_id = context.get("bot_user_id")
 
     if is_user_restricted(new_user):
-        client.conversations_kick(channel=channel, users=new_user)
+        client.conversations_kick(channel=channel, user=new_user)
         return
 
     if new_user == bot_user_id:
@@ -1391,7 +1391,7 @@ def schedule_purge_msg(client):
                         if row and row[0]:
                             continue
                         try:
-                            client.conversations_kick(channel=channel_id, users=user_id)
+                            client.conversations_kick(channel=channel_id, user=user_id)
                             kicked += 1
                         except Exception as e:
                             kick_errors += 1
