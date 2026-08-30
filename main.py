@@ -568,7 +568,8 @@ def enforce_join_idv_guard(client, user_id: str, tell_user) -> bool:
     elif seconds_left:
         tell_user(
             f"you're still not IDV verified, and joining is on cooldown for you :neocat_blank: "
-            f"please wait {format_cooldown(cooldown_left)} and try again!"
+            f"please wait {format_cooldown(cooldown_left)} - trying again before then just "
+            "makes the wait longer!"
         )
     else:
         message = (
@@ -578,7 +579,8 @@ def enforce_join_idv_guard(client, user_id: str, tell_user) -> bool:
         if cooldown_left:
             message += (
                 f"\n\nalso, that's a lot of tries in a row, so joining is on cooldown for you for "
-                f"{format_cooldown(cooldown_left)}. :neocat_blank:"
+                f"{format_cooldown(cooldown_left)}. :neocat_blank: sit tight - trying again "
+                "before it's up just makes the wait longer!"
             )
         tell_user(message)
 
