@@ -25,6 +25,14 @@ Nudgebot can do many thing to make your channel organized!
 * When someone joins your channel, they get greeted with a welcoming message. You can adjust this in the main.py file of this repo.
 * If someone leaves your channel, Nudgebot will automaticlly remove them from the usergroup that you configured, clearing up the usergroup, making sure only active people are added to the usergroup!
 
+### Anti-Spam Feature
+* People who aren't IDV verified have a habit of mashing the join button over and over. Nudgebot now puts them on a cooldown instead of DMing them the same rejection (and pinging you) every single time.
+* After a few blocked tries they're told to wait, and every cooldown they earn doubles the next one, up to a day. Clicks during a cooldown are dropped entirely — no DM for them, no ping for you, and no wasted call to the IDV API.
+* You only hear about someone once per spree: the first time they're blocked, and again whenever they escalate into a longer cooldown.
+* Getting verified (or getting let in) clears their record straight away, so nobody stays stuck on a cooldown after they've sorted their verification out.
+* You can optionally have Nudgebot add repeat offenders to your restrict list after a number of strikes. This is off by default.
+* Configure all of it under "Anti-Spam Settings" in your app home, check on it with `/<prefix>-list-join-spam`, and forgive people with `/<prefix>-clear-join-spam @user`.
+
 ### Logging Features
 * Nudgebot will log for those who join, leave your channel. It can also log who join or left the user group.
 

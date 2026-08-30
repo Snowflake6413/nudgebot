@@ -105,6 +105,19 @@ def init_db():
             cursor.execute(f"ALTER TABLE purge_targets ADD COLUMN {col} {typedef}")
         except sqlite3.OperationalError:
             pass
+    # Anti-spam bookkeeping for the join button
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS join_attempts (
+        user_id TEXT PRIMARY KEY,
+        attempts INTEGER DEFAULT 0,
+        strikes INTEGER DEFAULT 0,
+        first_attempt_at REAL,
+        last_attempt_at REAL,
+        cooldown_until REAL DEFAULT 0,
+        last_reply_at REAL DEFAULT 0,
+        owner_notified INTEGER DEFAULT 0
+        )
+    """)
     # Slash command prefix init because Stinky slack likes to take over commands if the name is same
     cursor.execute(
         "INSERT OR IGNORE INTO bot_settings (key, value) VALUES (? , ?)",
@@ -263,6 +276,334 @@ def is_joining_paused() -> bool:
     return result is not None and str(result[0]) == "1"
 
 
+# Anti-spam for the join button >:(
+# People who aren't IDV verified kept mashing "Join Channel", and every single
+# click DMed them the same rejection and pinged the channel manager again.
+# Blocked attempts go through enforce_join_idv_guard now: strikes, a cooldown
+# that doubles every time someone keeps at it, and one owner ping per
+# escalation instead of one per click.
+ANTISPAM_DEFAULTS = {
+    "antispam_enabled": 1,
+    "antispam_max_attempts": 3,
+    "antispam_cooldown_minutes": 30,
+    "antispam_auto_restrict_strikes": 0,  # 0 = never auto-restrict
+}
+# A doubling cooldown shouldn't quietly turn into a permanent ban.
+ANTISPAM_MAX_COOLDOWN_MINUTES = 24 * 60
+# Someone on cooldown still deserves an answer, just not one per click.
+ANTISPAM_REPLY_THROTTLE_SECONDS = 60
+# Come back tomorrow and it's a clean slate.
+ANTISPAM_RECORD_RESET_SECONDS = 24 * 60 * 60
+IDV_PASSING_RESULTS = ("verified_eligible", "verified_but_over_18")
+
+
+def get_antispam_setting(key: str) -> int:
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM bot_settings WHERE key = ?", (key,))
+    result = cursor.fetchone()
+    conn.close()
+
+    if result is None:
+        return ANTISPAM_DEFAULTS[key]
+    try:
+        return int(result[0])
+    except (TypeError, ValueError):
+        return ANTISPAM_DEFAULTS[key]
+
+
+def is_antispam_enabled() -> bool:
+    return get_antispam_setting("antispam_enabled") == 1
+
+
+def format_cooldown(seconds: int) -> str:
+    minutes = max(1, round(seconds / 60))
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+
+    hours, minutes = divmod(minutes, 60)
+    if minutes:
+        return f"{hours}h {minutes}m"
+    return f"{hours} hour{'s' if hours != 1 else ''}"
+
+
+def get_join_cooldown(user_id: str) -> int:
+    """Seconds left on someone's join cooldown. 0 means they're free to try."""
+    if not is_antispam_enabled():
+        return 0
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT cooldown_until FROM join_attempts WHERE user_id = ?", (user_id,)
+    )
+    result = cursor.fetchone()
+    conn.close()
+
+    if result is None or not result[0]:
+        return 0
+    return max(0, int(result[0] - time.time()))
+
+
+def claim_antispam_reply(user_id: str) -> bool:
+    """True when we're allowed to answer this user again.
+
+    Mashing a button shouldn't earn a DM per press, so only one reply (and one
+    IDV lookup) gets through per throttle window. Everything else is dropped
+    on the floor.
+    """
+    now = time.time()
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT last_reply_at FROM join_attempts WHERE user_id = ?", (user_id,)
+    )
+    result = cursor.fetchone()
+
+    if (
+        result is not None
+        and result[0]
+        and now - result[0] < ANTISPAM_REPLY_THROTTLE_SECONDS
+    ):
+        conn.close()
+        return False
+
+    cursor.execute(
+        "INSERT INTO join_attempts (user_id, last_reply_at) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET last_reply_at = ?",
+        (user_id, now, now),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def should_ping_owner_about(user_id: str) -> bool:
+    """Whether the channel manager should hear about this rejection.
+
+    Auto-restricting a spammer only moves their mashing to the restricted-user
+    branch, so that ping goes through the same throttle.
+    """
+    if not is_antispam_enabled():
+        return True
+    return claim_antispam_reply(user_id)
+
+
+def clear_join_attempts(user_id: str):
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM join_attempts WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def record_blocked_join_attempt(user_id: str) -> dict:
+    """Log one blocked join attempt and work out what it costs them.
+
+    Once someone is past the attempt limit they earn a strike, and every strike
+    doubles the cooldown they have to sit out. The channel manager only hears
+    about the first attempt of a spree and about each escalation after that.
+    """
+    if not is_antispam_enabled():
+        return {
+            "strikes": 0,
+            "cooldown_seconds": 0,
+            "notify_owner": True,
+            "auto_restricted": False,
+        }
+
+    now = time.time()
+    max_attempts = max(1, get_antispam_setting("antispam_max_attempts"))
+    base_cooldown = max(1, get_antispam_setting("antispam_cooldown_minutes"))
+    restrict_after = get_antispam_setting("antispam_auto_restrict_strikes")
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT attempts, strikes, cooldown_until, last_attempt_at, owner_notified "
+        "FROM join_attempts WHERE user_id = ?",
+        (user_id,),
+    )
+    result = cursor.fetchone()
+    attempts, strikes, cooldown_until, last_attempt_at, owner_notified = result or (
+        0,
+        0,
+        0.0,
+        0.0,
+        0,
+    )
+    attempts = attempts or 0
+    strikes = strikes or 0
+    cooldown_until = cooldown_until or 0.0
+
+    # A quiet day wipes the slate, so an honest retry tomorrow isn't punished
+    # for what happened today.
+    if (
+        last_attempt_at
+        and now - last_attempt_at > ANTISPAM_RECORD_RESET_SECONDS
+        and cooldown_until <= now
+    ):
+        attempts, strikes, owner_notified = 0, 0, 0
+
+    attempts += 1
+    hit_limit = attempts >= max_attempts
+
+    if hit_limit:
+        strikes += 1
+        minutes = min(
+            base_cooldown * (2 ** min(strikes - 1, 16)), ANTISPAM_MAX_COOLDOWN_MINUTES
+        )
+        cooldown_until = max(cooldown_until, now + minutes * 60)
+        attempts = 0  # the strike is what carries over, not the tally
+
+    auto_restricted = bool(restrict_after) and strikes >= restrict_after
+    notify_owner = not owner_notified or hit_limit
+    owner_notified = 1 if (notify_owner or owner_notified) else 0
+
+    cursor.execute(
+        """
+        INSERT INTO join_attempts (
+            user_id, attempts, strikes, first_attempt_at, last_attempt_at,
+            cooldown_until, owner_notified
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            attempts = ?,
+            strikes = ?,
+            first_attempt_at = COALESCE(first_attempt_at, ?),
+            last_attempt_at = ?,
+            cooldown_until = ?,
+            owner_notified = ?
+        """,
+        (
+            user_id,
+            attempts,
+            strikes,
+            now,
+            now,
+            cooldown_until,
+            owner_notified,
+            attempts,
+            strikes,
+            now,
+            now,
+            cooldown_until,
+            owner_notified,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    if auto_restricted:
+        add_user_to_restrictlist(
+            user_id, reason=f"Auto-restricted after {strikes} join spam strikes"
+        )
+
+    return {
+        "strikes": strikes,
+        "cooldown_seconds": max(0, int(cooldown_until - now)),
+        "notify_owner": notify_owner,
+        "auto_restricted": auto_restricted,
+    }
+
+
+def fetch_idv_result(user_id: str):
+    """Ask Hack Club auth whether someone is IDV verified.
+
+    Hands back the raw result string, or None when the lookup itself failed -
+    nobody should get strikes for an outage on our side.
+    """
+    try:
+        response = requests.get(
+            "https://auth.hackclub.com/api/external/check",
+            params={"slack_id": user_id},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json().get("result")
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+        return None
+
+
+def enforce_join_idv_guard(client, user_id: str, tell_user) -> bool:
+    """The IDV gate and its anti-spam cooldown, shared by every join entry point.
+
+    Returns True when the request is allowed to carry on. Blocked users hear
+    why at most once a minute, and the channel manager gets one ping per
+    escalation instead of one per click.
+    """
+    if not is_idv_required():
+        return True
+
+    seconds_left = get_join_cooldown(user_id)
+    if seconds_left and not claim_antispam_reply(user_id):
+        # They're straight up mashing the button. No DM, no IDV lookup, and
+        # nothing lands in the channel manager's DMs either.
+        return False
+
+    idv_result = fetch_idv_result(user_id)
+
+    if idv_result in IDV_PASSING_RESULTS:
+        # Got verified while sitting out a cooldown? all forgiven :3
+        clear_join_attempts(user_id)
+        return True
+
+    if idv_result is None:
+        tell_user(
+            "i couldn't check your IDV status right now, the verification service didn't answer :neocat_sad: "
+            "please try again in a few minutes!"
+        )
+        return False
+
+    outcome = record_blocked_join_attempt(user_id)
+    cooldown_left = outcome["cooldown_seconds"] or seconds_left
+
+    if outcome["auto_restricted"]:
+        tell_user(
+            f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}> ({channel_name}). :neocat_sad: "
+            f"if you think this is a mistake, please DM <@{CMAN_USER_ID}>."
+        )
+    elif seconds_left:
+        tell_user(
+            f"you're still not IDV verified, and joining is on cooldown for you :neocat_blank: "
+            f"please wait {format_cooldown(cooldown_left)} - trying again before then just "
+            "makes the wait longer!"
+        )
+    else:
+        message = (
+            f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) "
+            ":neocat_sad: complete your verifcation and try again later!"
+        )
+        if cooldown_left:
+            message += (
+                f"\n\nalso, that's a lot of tries in a row, so joining is on cooldown for you for "
+                f"{format_cooldown(cooldown_left)}. :neocat_blank: sit tight - trying again "
+                "before it's up just makes the wait longer!"
+            )
+        tell_user(message)
+
+    if outcome["notify_owner"]:
+        owner_text = (
+            f"<@{user_id}> tried to join your channel but they werent IDV verified!"
+        )
+        if cooldown_left:
+            owner_text += (
+                f"\nthat's strike {outcome['strikes']} for them, so they're on a "
+                f"{format_cooldown(cooldown_left)} cooldown now and i'll stop pinging you "
+                "about them until it runs out."
+            )
+        if outcome["auto_restricted"]:
+            owner_text += (
+                "\ni also added them to your restrict list, since you asked me to "
+                "after that many strikes."
+            )
+        client.chat_postMessage(channel=CMAN_USER_ID, text=owner_text)
+
+    return False
+
+
 @app.command(f"/{SLASH_PREFIX}-about")
 def help_command(command, ack, client):
     ack()
@@ -284,7 +625,7 @@ def help_command(command, ack, client):
             {"type": "divider"},
             {
                 "type": "markdown",
-                "text": f"Commands:\n /{SLASH_PREFIX}-advertise-channel - Share your channel to #neighbourhood!\n /{SLASH_PREFIX}-list-restricted-users - List of restricted users for your channel.\n/{SLASH_PREFIX}-restrict-from-channel @user - Restrict a user from joining your channel.\n/{SLASH_PREFIX}-unrestrict-from-channel @user - Unrestrict a user from joining your channel.\n /{SLASH_PREFIX}-channel-purge - Kick out inactive people from your channel\n /{SLASH_PREFIX}-cancel-purges - Delete every scheduled/running purge session.\n /{SLASH_PREFIX}-clean-up-group-list -Remove usergroup members who are no longer in the channel.\n /join-channel-{SLASH_PREFIX} - Request to join {channel_name}! \n /{SLASH_PREFIX}-say <text> say something as your nudgebot!",
+                "text": f"Commands:\n /{SLASH_PREFIX}-advertise-channel - Share your channel to #neighbourhood!\n /{SLASH_PREFIX}-list-restricted-users - List of restricted users for your channel.\n/{SLASH_PREFIX}-restrict-from-channel @user - Restrict a user from joining your channel.\n/{SLASH_PREFIX}-unrestrict-from-channel @user - Unrestrict a user from joining your channel.\n /{SLASH_PREFIX}-channel-purge - Kick out inactive people from your channel\n /{SLASH_PREFIX}-cancel-purges - Delete every scheduled/running purge session.\n /{SLASH_PREFIX}-clean-up-group-list -Remove usergroup members who are no longer in the channel.\n /{SLASH_PREFIX}-list-join-spam - See who is on a join cooldown for spamming the join button.\n /{SLASH_PREFIX}-clear-join-spam @user - Clear someone's join cooldown (or 'all' for everybody).\n /join-channel-{SLASH_PREFIX} - Request to join {channel_name}! \n /{SLASH_PREFIX}-say <text> say something as your nudgebot!",
             },
             {"type": "divider"},
             {
@@ -853,6 +1194,8 @@ def handle_member_invited_channel_and_channel_join(body, client, context, say):
             return
 
     if channel == PERSONAL_CHANNEL_ID and new_user != bot_user_id:
+        clear_join_attempts(new_user)
+
         client.chat_postMessage(
             channel=CMAN_USER_ID,
             text=f"<@{new_user}> joined your channel! :yay-67:",
@@ -1017,7 +1360,94 @@ def unrestrict_user_command(ack, respond, say, command, client):
     user_id = user_id_text.replace("<@", "").replace(">", "").split("|")[0]
 
     remove_user_from_restrictlist(user_id)
+    # Unrestricting is a fresh start, so drop any join cooldown they picked up.
+    clear_join_attempts(user_id)
     respond(f"Sucessfully unrestricted <@{user_id}>!")
+
+
+@app.command(f"/{SLASH_PREFIX}-list-join-spam")
+def list_join_spam_command(ack, respond, command):
+    ack()
+
+    if command["user_id"] != CMAN_USER_ID:
+        respond("You are not authorized to run this command. :nuhuhvro:")
+        return
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT user_id, attempts, strikes, cooldown_until, first_attempt_at, last_attempt_at "
+        "FROM join_attempts WHERE attempts > 0 OR strikes > 0 OR cooldown_until > 0 "
+        "ORDER BY cooldown_until DESC, strikes DESC"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        respond("nobody has been spamming the join button. :yay:")
+        return
+
+    tz = zoneinfo.ZoneInfo(BOT_TIMEZONE or "America/New_York")
+    now = time.time()
+
+    def stamp(value):
+        return (
+            f"{datetime.fromtimestamp(value, tz=tz):%Y-%m-%d %H:%M}"
+            if value
+            else "never"
+        )
+
+    msg = "People who got told to chill about joining:\n"
+    for user_id, attempts, strikes, cooldown_until, first_at, last_at in rows:
+        remaining = max(0, int((cooldown_until or 0) - now))
+        status = (
+            f"on cooldown for {format_cooldown(remaining)}"
+            if remaining
+            else "not on cooldown"
+        )
+        msg += (
+            f"<@{user_id}> - {strikes} strike(s), {attempts} blocked tr(y/ies) toward the next "
+            f"cooldown, {status} (first try: {stamp(first_at)}, last try: {stamp(last_at)})\n"
+        )
+
+    respond(msg)
+
+
+@app.command(f"/{SLASH_PREFIX}-clear-join-spam")
+def clear_join_spam_command(ack, respond, command):
+    ack()
+
+    if command["user_id"] != CMAN_USER_ID:
+        respond("You are not authorized to run this command. :nuhuhvro:")
+        return
+
+    user_id_text = command.get("text", "").strip()
+    if not user_id_text:
+        respond(
+            f"Please provide a user to forgive, e.g., /{SLASH_PREFIX}-clear-join-spam @user "
+            "(or 'all' to forgive everybody)."
+        )
+        return
+
+    if user_id_text.lower() == "all":
+        conn = sqlite3.connect("nudgebot.db")
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM join_attempts "
+            "WHERE attempts > 0 OR strikes > 0 OR cooldown_until > 0"
+        )
+        cleared = cursor.fetchone()[0]
+        cursor.execute("DELETE FROM join_attempts")
+        conn.commit()
+        conn.close()
+
+        respond(f"Cleared {cleared} join cooldown(s). everybody gets a clean slate!")
+        return
+
+    user_id = user_id_text.replace("<@", "").replace(">", "").split("|")[0]
+
+    clear_join_attempts(user_id)
+    respond(f"Cleared <@{user_id}>'s join cooldown and strikes!")
 
 
 @app.command(f"/{SLASH_PREFIX}-channel-purge")
@@ -1615,10 +2045,11 @@ def joining_guardian(ack, respond, say, command, client, body):
         respond(
             f"sorry, but you are unable to join <#{PERSONAL_CHANNEL_ID}> ({channel_name}). :neocat_sad: if you think this is a mistake, please DM <@{CMAN_USER_ID}>."
         )
-        client.chat_postMessage(
-            channel=CMAN_USER_ID,
-            text=f"<@{invoker_user_id}> tried to join your channel but you restricted them from joining your channel!",
-        )
+        if should_ping_owner_about(invoker_user_id):
+            client.chat_postMessage(
+                channel=CMAN_USER_ID,
+                text=f"<@{invoker_user_id}> tried to join your channel but you restricted them from joining your channel!",
+            )
         return
 
     if invoker_user_id in members:
@@ -1633,23 +2064,10 @@ def joining_guardian(ack, respond, say, command, client, body):
         )
         return
 
-    if is_idv_required():
-        response = requests.get(
-            "https://auth.hackclub.com/api/external/check",
-            params={"slack_id": invoker_user_id},
-        )
-        idv_data = response.json()
-        idv_result = idv_data.get("result")
-        if idv_result not in ("verified_eligible", "verified_but_over_18"):
-            respond(
-                f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :neocat_sad: complete your verifcation and try again later!",
-            )
-
-            client.chat_postMessage(
-                channel=CMAN_USER_ID,
-                text=f"<@{invoker_user_id}> tried to join your channel but they werent IDV verified!",
-            )
-            return
+    # Handles the IDV check *and* the cooldown for anyone who keeps trying
+    # without being verified.
+    if not enforce_join_idv_guard(client, invoker_user_id, respond):
+        return
 
     if is_requests_off():
         client.conversations_invite(channel=PERSONAL_CHANNEL_ID, users=invoker_user_id)
@@ -1668,12 +2086,7 @@ def joining_guardian(ack, respond, say, command, client, body):
         text=f":<@{invoker_user_id}>. you requested access to join <@{CMAN_USER_ID}>'s channel! :yay: You should wait for a while for the channel owner to review your request to be invited!",
     )
 
-    response = requests.get(
-        "https://auth.hackclub.com/api/external/check",
-        params={"slack_id": invoker_user_id},
-    )
-    idv_data = response.json()
-    idv_result = idv_data.get("result")
+    idv_result = fetch_idv_result(invoker_user_id) or "unknown"
     blocks = [
         {
             "type": "section",
@@ -1783,6 +2196,21 @@ def update_home_tab(client, event):
                         },
                         "value": "click_me_123",
                         "action_id": "invitation_settings_action",
+                    }
+                ],
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": ":no_entry_sign: Anti-Spam Settings",
+                            "emoji": True,
+                        },
+                        "value": "click_me_123",
+                        "action_id": "antispam_settings_action",
                     }
                 ],
             },
@@ -2250,6 +2678,168 @@ def handle_toggle_idv(ack, client, body):
     toggle_joining_setting("require_idv", ack, client, body)
 
 
+# Telling people to chill, configurably :3
+@app.action("antispam_settings_action")
+def configure_antispam(ack, client, body):
+    ack()
+
+    enabled = is_antispam_enabled()
+    max_attempts = get_antispam_setting("antispam_max_attempts")
+    cooldown_minutes = get_antispam_setting("antispam_cooldown_minutes")
+    restrict_after = get_antispam_setting("antispam_auto_restrict_strikes")
+
+    on_option = {
+        "text": {"type": "plain_text", "text": "On (cooldowns)", "emoji": True},
+        "value": "1",
+    }
+    off_option = {
+        "text": {"type": "plain_text", "text": "Off (no cooldowns)", "emoji": True},
+        "value": "0",
+    }
+
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "callback_id": "antispam_settings_action",
+            "title": {
+                "type": "plain_text",
+                "text": "Anti-Spam Settings",
+                "emoji": True,
+            },
+            "submit": {"type": "plain_text", "text": "Save", "emoji": True},
+            "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "tired of people who aren't IDV verified mashing the join button? this is where you tell them to chill. :neocat_blank:",
+                    },
+                },
+                {"type": "divider"},
+                {
+                    "type": "input",
+                    "block_id": "antispam_enabled_input",
+                    "element": {
+                        "type": "static_select",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select...",
+                            "emoji": True,
+                        },
+                        "options": [on_option, off_option],
+                        "initial_option": on_option if enabled else off_option,
+                        "action_id": "antispam_enabled_select",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Join Spam Protection",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "antispam_attempts_input",
+                    "element": {
+                        "type": "number_input",
+                        "is_decimal_allowed": False,
+                        "min_value": "1",
+                        "max_value": "50",
+                        "initial_value": str(max_attempts),
+                        "action_id": "antispam_attempts_value",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Blocked tries before a cooldown",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "antispam_cooldown_input",
+                    "element": {
+                        "type": "number_input",
+                        "is_decimal_allowed": False,
+                        "min_value": "1",
+                        "max_value": "1440",
+                        "initial_value": str(cooldown_minutes),
+                        "action_id": "antispam_cooldown_value",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "First cooldown (minutes)",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "antispam_restrict_input",
+                    "element": {
+                        "type": "number_input",
+                        "is_decimal_allowed": False,
+                        "min_value": "0",
+                        "max_value": "50",
+                        "initial_value": str(restrict_after),
+                        "action_id": "antispam_restrict_value",
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Auto-restrict after this many strikes (0 = never)",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "every cooldown someone earns doubles the next one (capped at a day), and you only get pinged once per spree instead of once per click. joining, and getting verified, clears their record.",
+                        }
+                    ],
+                },
+            ],
+        },
+    )
+
+
+@app.view("antispam_settings_action")
+def handle_antispam_settings_submission(ack, body, client):
+    ack()
+    values = body["view"]["state"]["values"]
+
+    settings = {
+        "antispam_enabled": values["antispam_enabled_input"]["antispam_enabled_select"][
+            "selected_option"
+        ]["value"],
+        "antispam_max_attempts": values["antispam_attempts_input"][
+            "antispam_attempts_value"
+        ]["value"],
+        "antispam_cooldown_minutes": values["antispam_cooldown_input"][
+            "antispam_cooldown_value"
+        ]["value"],
+        "antispam_auto_restrict_strikes": values["antispam_restrict_input"][
+            "antispam_restrict_value"
+        ]["value"],
+    }
+
+    conn = sqlite3.connect("nudgebot.db")
+    cursor = conn.cursor()
+    for key, value in settings.items():
+        try:
+            clean = str(max(0, int(value)))
+        except (TypeError, ValueError):
+            clean = str(ANTISPAM_DEFAULTS[key])
+
+        cursor.execute(
+            "INSERT INTO bot_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = ?",
+            (key, clean, clean),
+        )
+    conn.commit()
+    conn.close()
+
+
 # Configuring the recap:tm:
 @app.action("recap_config_action")
 def configure_recaps(ack, body, client):
@@ -2498,23 +3088,13 @@ def handle_join_button_app_home(ack, respond, say, body, client):
         )
         return
 
-    if is_idv_required():
-        response = requests.get(
-            "https://auth.hackclub.com/api/external/check", params={"slack_id": user_id}
-        )
-        idv_data = response.json()
-        idv_result = idv_data.get("result")
-        if idv_result not in ("verified_eligible", "verified_but_over_18"):
-            client.chat_postMessage(
-                channel=user_id,
-                text=f"sorry, but you need to be IDV verified to join <#{PERSONAL_CHANNEL_ID}>! ({channel_name}) :neocat_sad: complete your verifcation and try again later!",
-            )
+    def tell_user(text: str):
+        client.chat_postMessage(channel=user_id, text=text)
 
-            client.chat_postMessage(
-                channel=CMAN_USER_ID,
-                text=f"<@{user_id}> tried to join your channel but they werent IDV verified!",
-            )
-            return
+    # This button is the one people actually mash, so the same guard (IDV check
+    # plus cooldown) sits in front of it.
+    if not enforce_join_idv_guard(client, user_id, tell_user):
+        return
 
     if is_requests_off():
         client.conversations_invite(channel=PERSONAL_CHANNEL_ID, users=user_id)
@@ -2532,11 +3112,7 @@ def handle_join_button_app_home(ack, respond, say, body, client):
         text=f":<@{user_id}>. you requested access to join <@{CMAN_USER_ID}>'s channel! :yay: You should wait for a while for the channel owner to review your request to be invited!",
     )
 
-    response = requests.get(
-        "https://auth.hackclub.com/api/external/check", params={"slack_id": user_id}
-    )
-    idv_data = response.json()
-    idv_result = idv_data.get("result")
+    idv_result = fetch_idv_result(user_id) or "unknown"
     blocks = [
         {
             "type": "section",
@@ -2631,6 +3207,8 @@ def handle_accept_button(ack, body, client):
             }
         ],
     )
+
+    clear_join_attempts(requestor_user_id)
 
     client.conversations_invite(channel=PERSONAL_CHANNEL_ID, users=requestor_user_id)
 
