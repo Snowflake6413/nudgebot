@@ -46,6 +46,17 @@
         "should_escape": false
       },
       {
+        "command": "/CHANGEME-list-join-spam",
+        "description": "See who is on a join cooldown for spamming the join button.",
+        "should_escape": false
+      },
+      {
+        "command": "/CHANGEME-clear-join-spam",
+        "description": "Clear someone's join cooldown and strikes.",
+        "usage_hint": "@user",
+        "should_escape": true
+      },
+      {
         "command": "/CHANGEME-channel-purge",
         "description": "Kick out inactive people from your channel",
         "should_escape": false
