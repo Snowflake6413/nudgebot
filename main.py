@@ -95,11 +95,15 @@ def init_db():
         responded INTEGER DEFAULT 0,
         responded_at TIMESTAMP,
         dm_failed INTEGER DEFAULT 0,
+        kick_failed INTEGER DEFAULT 0,
+        kick_error TEXT,
         PRIMARY KEY (session_id, user_id)
         )
     """)
     for col, typedef in [
         ("dm_failed", "INTEGER DEFAULT 0"),
+        ("kick_failed", "INTEGER DEFAULT 0"),
+        ("kick_error", "TEXT"),
     ]:
         try:
             cursor.execute(f"ALTER TABLE purge_targets ADD COLUMN {col} {typedef}")
@@ -1806,7 +1810,8 @@ def schedule_purge_msg(client):
                     )
                     pending_users = [row[0] for row in cursor.fetchall()]
                     kicked = 0
-                    kick_errors = 0
+                    kick_failures = []
+                    kick_reasons = {}
 
                     for user_id in pending_users:
                         cursor.execute(
@@ -1824,7 +1829,25 @@ def schedule_purge_msg(client):
                             client.conversations_kick(channel=channel_id, user=user_id)
                             kicked += 1
                         except Exception as e:
-                            kick_errors += 1
+                            # Remember who we couldn't kick. The count alone can't be
+                            # traced back to people once the run is over.
+                            kick_failures.append(user_id)
+                            reason = (
+                                e.response.get("error", "unknown_error")
+                                if isinstance(e, SlackApiError)
+                                else str(e)[:200]
+                            )
+                            kick_reasons[reason] = kick_reasons.get(reason, 0) + 1
+                            cursor.execute(
+                                """
+                                UPDATE purge_targets
+                                SET kick_failed = 1,
+                                    kick_error = ?
+                                WHERE session_id = ? AND user_id = ?
+                                """,
+                                (reason, session_id, user_id),
+                            )
+                            conn.commit()
                             sentry_sdk.capture_exception(e)
                     cursor.execute(
                         """
@@ -1859,16 +1882,26 @@ def schedule_purge_msg(client):
                     )
                     never_warned_count = cursor.fetchone()[0]
 
-                    client.chat_postMessage(
-                        channel=created_by,
-                        text=(
-                            f"Purge finished!\n"
-                            f"# of people safe from purge: {safe_count}\n"
-                            f"Kicked: {kicked}\n"
-                            f"Kick errors: {kick_errors}\n"
-                            f"Spared (never got a DM): {never_warned_count}"
-                        ),
+                    report = (
+                        f"Purge finished!\n"
+                        f"# of people safe from purge: {safe_count}\n"
+                        f"Kicked: {kicked}\n"
+                        f"Kick errors: {len(kick_failures)}\n"
+                        f"Spared (never got a DM): {never_warned_count}"
                     )
+                    if kick_failures:
+                        report += (
+                            f"\nStill in the channel: {format_user_list(kick_failures)}"
+                        )
+                        reasons = ", ".join(
+                            f"`{reason}` x{count}"
+                            for reason, count in sorted(
+                                kick_reasons.items(), key=lambda i: -i[1]
+                            )
+                        )
+                        report += f"\nSlack said: {reasons}"
+
+                    client.chat_postMessage(channel=created_by, text=report)
 
                 elif started_raw is None and now >= deadline_at:
                     cursor.execute(
